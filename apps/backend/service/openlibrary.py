@@ -12,7 +12,7 @@ from loguru import logger
 
 from config.base import settings
 from dto.book import normalize_isbn
-from util.http_errors import ServiceUnavailableError
+from util.http_errors import NotFoundError, ServiceUnavailableError
 
 _SEARCH_FIELDS = "key,title,author_name,first_publish_year,publisher,language,subject,cover_i,isbn"
 _HEADERS = {"User-Agent": "library-rag/0.1 (book library learning project)"}
@@ -41,11 +41,11 @@ class OpenLibraryClient:
         return candidates
 
     def get_by_isbn(self, isbn: str) -> dict:
-        """Normalized metadata for one ISBN. Raises LookupError if Open Library has no record."""
+        """Normalized metadata for one ISBN. Raises NotFoundError if Open Library has no record."""
         body = self._get("/search.json", {"isbn": isbn, "fields": _SEARCH_FIELDS, "limit": 1})
         docs = body.get("docs") or []
         if not docs:
-            raise LookupError(f"Open Library has no record for ISBN {isbn}.")
+            raise NotFoundError(f"Open Library has no record for ISBN {isbn}.")
         doc = docs[0]
         return _to_metadata(doc, isbn, description=self._work_description(doc.get("key")))
 

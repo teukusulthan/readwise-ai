@@ -30,7 +30,7 @@ from config.base import settings
 from dto.chat import ChatAskDTO
 from service.search import Retrieval, Search
 from service.vector_store import ChunkHit
-from util.http_errors import ServiceUnavailableError
+from util.http_errors import SEARCH_UNAVAILABLE_MESSAGE, ServiceUnavailableError, is_search_outage
 
 INSUFFICIENT_MARKER = "INSUFFICIENT_CONTEXT"
 # Starts the general-knowledge part of a hybrid answer (web: utils/citations.ts splitGeneralKnowledge).
@@ -346,6 +346,12 @@ class Rag:
             prepared = await asyncio.to_thread(self._prepare, dto, streamer is not None, history, previous_question)
         except ServiceUnavailableError as error:
             yield "error", {"message": str(error), "code": 503}
+            return
+        except Exception as error:
+            if not is_search_outage(error):
+                raise
+            logger.warning("Search service unavailable: {error}", error=error)
+            yield "error", {"message": SEARCH_UNAVAILABLE_MESSAGE, "code": 503}
             return
 
         model = None if prepared.early else settings.LLM_MODEL

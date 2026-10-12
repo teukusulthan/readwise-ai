@@ -216,7 +216,7 @@ deleted book's points are never returned; the worker drops points of a book dele
 | `service/conversation.py`, `service/conversation_repository.py`, `router/conversation.py`, `dto/conversation.py` | Saved conversations: one streamed turn = question + answer saved; list/get/rename/delete |
 | `service/llm.py` | Agno Agent + LiteLLM model |
 | `service/openlibrary.py` | Open Library client |
-| `util/http_errors.py` | Exception → HTTP status (400/404/409/503/500) in the standard envelope |
+| `util/http_errors.py` | Exception → HTTP status in the standard envelope: `NotFoundError` 404, `ConflictError`/duplicate 409, `ValueError` 400, `ServiceUnavailableError` and search outages (`EmbeddingError`, Qdrant connection errors; message "Search service unavailable") 503, anything else 500 (logged). Plain `LookupError`/`KeyError` is a bug, not a 404 |
 | `tests/unit/*` | Fast tests (no services) |
 | `tests/integration/*` | Real Postgres + Qdrant (`-m integration`); full pipeline (`-m "integration and external and docling"`) |
 | `tests/docling/*` | Real Docling parsing of `tests/fixtures/sample_book.pdf` (`-m docling`) |
@@ -275,6 +275,7 @@ deleted book's points are never returned; the worker drops points of a book dele
 ## 8. Known limitations
 
 - **LLM:** Kimi Code `openai/kimi-for-coding` (OpenAI-compatible endpoint `https://api.kimi.com/coding/v1`) via LiteLLM, set in `apps/backend/.env`; temperature/top_p left empty because the model only accepts its own values. Verified: cited book answers, separate general-knowledge sections, per-book comparisons. Previously OpenRouter `nvidia/nemotron-3-super-120b-a12b:free`, until the account hit OpenRouter's shared 50 free requests/day cap. Kimi positions the Code plan for coding tools; a Kimi Open Platform key is the intended route for applications. Without `BE_LLM_MODEL` the app falls back to `retrieval_only`.
+- LLM timeouts: `BE_LLM_TIMEOUT_SECONDS` (120) and `BE_LLM_NUM_RETRIES` (2) go to LiteLLM through Agno's `request_params` (sync and streaming). `BE_LLM_FIRST_TOKEN_TIMEOUT_SECONDS` (90) applies to streaming only: if no content or reasoning token arrives in time, the generation is cancelled and the turn ends with the SSE `error` event "The model took too long to respond. Try again."; the conversation claim is released through the normal finish path.
 - Agno returns provider errors as a normal result with `status=ERROR`; `service/llm.py` converts that into a 503 with a short message (bad key / rate limit / unknown model) and logs the details.
 - **Cross-language questions are weak**: an Indonesian question about an English book ranked the wrong chapter first.
 - **Scanned PDFs** fail with "No text could be extracted" (OCR is off for speed/RAM; `BE_DOCLING_DO_OCR=true` enables it).

@@ -20,13 +20,13 @@ from service.ingestion import Ingestion
 from service.openlibrary import OpenLibraryClient
 from service.vector_store import VectorStore
 from util import storage
-from util.http_errors import ConflictError
+from util.http_errors import ConflictError, NotFoundError
 
 _BUSY_MESSAGE = "The book is being indexed. Wait until indexing finishes, then delete it."
 _HAS_DOCUMENT_MESSAGE = "This book already has a document. Delete the book or use reindex."
 
 
-class BookNotFoundError(LookupError):
+class BookNotFoundError(NotFoundError):
     pass
 
 

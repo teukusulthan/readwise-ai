@@ -6,12 +6,21 @@ LiteLLM routes one model string to many providers, e.g. "openai/gpt-4o-mini",
 LLM_API_BASE. Configure with BE_LLM_MODEL / BE_LLM_API_KEY / BE_LLM_API_BASE.
 """
 
+import asyncio
+import time
 from typing import Optional
 
 from loguru import logger
 
 from config.base import settings
 from util.http_errors import ServiceUnavailableError
+
+
+FIRST_TOKEN_TIMEOUT_MESSAGE = "The model took too long to respond. Try again."
+
+
+class FirstTokenTimeoutError(ServiceUnavailableError):
+    """No answer or reasoning token arrived within BE_LLM_FIRST_TOKEN_TIMEOUT_SECONDS."""
 
 
 def _is_error(output) -> bool:
@@ -25,13 +34,26 @@ def _user_message(detail: str) -> str:
         return "The language model rejected the API key. Check BE_LLM_API_KEY."
     if "RateLimitError" in detail or "429" in detail:
         return "The language model is rate-limited right now. Try again shortly."
+    if "Timeout" in detail or "timed out" in detail:
+        return FIRST_TOKEN_TIMEOUT_MESSAGE
     if "NotFoundError" in detail or "404" in detail:
         return "The configured language model was not found. Check BE_LLM_MODEL."
     return "The language model request failed. See server logs for details."
 
 
+def _is_token(event) -> bool:
+    """A content piece or a reasoning piece: proof the model started answering."""
+    if type(event).__name__ != "RunContentEvent":
+        return False
+    return bool(getattr(event, "content", None)) or bool(getattr(event, "reasoning_content", None))
+
+
 def _model(request_params: Optional[dict] = None):
     from agno.models.litellm import LiteLLM
+
+    # Agno forwards request_params verbatim to litellm.completion / acompletion, which honour `timeout` and
+    # `num_retries` (retries cover connection errors, 429 and 5xx before any token is received).
+    params = {"timeout": settings.LLM_TIMEOUT_SECONDS, "num_retries": settings.LLM_NUM_RETRIES, **(request_params or {})}
 
     return LiteLLM(
         id=settings.LLM_MODEL,
@@ -43,7 +65,7 @@ def _model(request_params: Optional[dict] = None):
         temperature=settings.LLM_TEMPERATURE,
         top_p=settings.LLM_TOP_P,
         max_tokens=settings.LLM_MAX_TOKENS,
-        request_params=request_params,
+        request_params=params,
     )
 
 
@@ -64,6 +86,9 @@ def agno_generator(request_params: Optional[dict] = None):
         try:
             output = agent.run(user_prompt)
         except Exception as error:
+            if "Timeout" in type(error).__name__:
+                logger.error("LLM request timed out ({model})", model=settings.LLM_MODEL)
+                raise ServiceUnavailableError(FIRST_TOKEN_TIMEOUT_MESSAGE) from error
             raise ServiceUnavailableError(f"The language model request failed ({type(error).__name__}).") from error
 
         content = getattr(output, "content", None)
@@ -98,8 +123,24 @@ def agno_streamer(request_params: Optional[dict] = None):
             markdown=False,
             telemetry=False,
         )
+        started = time.monotonic()
+        events = agent.arun(user_prompt, stream=True).__aiter__()
+        seen_token = False
         try:
-            async for event in agent.arun(user_prompt, stream=True):
+            while True:
+                try:
+                    if seen_token:
+                        event = await events.__anext__()
+                    else:
+                        remaining = settings.LLM_FIRST_TOKEN_TIMEOUT_SECONDS - (time.monotonic() - started)
+                        event = await asyncio.wait_for(events.__anext__(), timeout=max(remaining, 0))
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    logger.error("LLM first token timed out after {s}s ({model})",
+                                 s=settings.LLM_FIRST_TOKEN_TIMEOUT_SECONDS, model=settings.LLM_MODEL)
+                    raise FirstTokenTimeoutError(FIRST_TOKEN_TIMEOUT_MESSAGE) from None
+                seen_token = seen_token or _is_token(event)
                 content = getattr(event, "content", None)
                 if type(event).__name__ == "RunErrorEvent" or _is_error(event):
                     logger.error("LLM stream failed ({model}): {detail}", model=settings.LLM_MODEL,
@@ -112,5 +153,12 @@ def agno_streamer(request_params: Optional[dict] = None):
         except Exception as error:
             logger.exception("LLM stream crashed")
             raise ServiceUnavailableError(f"The language model request failed ({type(error).__name__}).") from error
+        finally:
+            aclose = getattr(events, "aclose", None)
+            if aclose:  # cancels the generation (also on timeout / client stop)
+                try:
+                    await aclose()
+                except Exception:
+                    logger.debug("LLM stream close failed", exc_info=True)
 
     return stream

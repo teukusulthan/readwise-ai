@@ -40,7 +40,7 @@ from config.base import settings
 from dto.chat import ChatAskDTO
 from service import Services
 from service.conversation_repository import parse_conversation_id
-from util.http_errors import ConflictError
+from util.http_errors import ConflictError, NotFoundError
 
 TERMINAL_EVENTS = frozenset({"done", "error", "cancelled"})
 HEARTBEAT_SECONDS = 2.0
@@ -303,7 +303,7 @@ class ChatSessions:
         session_id = parse_session_id(session_id)
         meta = await self.store.meta(session_id)
         if not meta:
-            raise LookupError("Chat session not found or expired.")
+            raise NotFoundError("Chat session not found or expired.")
         if meta.get("status") != "running":
             return {"sessionId": session_id, "cancelled": False, "status": meta.get("status")}
         await self.store.request_cancel(session_id)

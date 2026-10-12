@@ -22,11 +22,12 @@ from dto.chat import ChatAskDTO
 from dto.conversation import RenameConversationDTO
 from service.conversation_repository import ConversationRepository
 from service.rag import ChatTurn, Rag, _tidy
+from util.http_errors import NotFoundError
 
 TITLE_MAX_CHARS = 80
 
 
-class ConversationNotFoundError(LookupError):
+class ConversationNotFoundError(NotFoundError):
     pass
 
 
@@ -102,8 +103,8 @@ class Conversation:
             else:
                 row = await asyncio.to_thread(self.repository.create, make_title(dto.question), dto.bookIds)
                 recent = []
-        except (LookupError, ValueError) as error:
-            yield "error", {"message": str(error), "code": 404 if isinstance(error, LookupError) else 400}
+        except (NotFoundError, ValueError) as error:
+            yield "error", {"message": str(error), "code": 404 if isinstance(error, NotFoundError) else 400}
             return
 
         conversation_id = str(row["id"])

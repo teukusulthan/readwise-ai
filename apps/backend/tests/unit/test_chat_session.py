@@ -8,7 +8,7 @@ import pytest
 
 from dto.chat import ChatAskDTO
 from service.chat_session import TURN_RUNNING_MESSAGE, ChatSessions, StoredEvent, parse_event_id
-from util.http_errors import ConflictError
+from util.http_errors import ConflictError, NotFoundError
 
 
 class MemorySessionStore:
@@ -202,7 +202,7 @@ async def test_unknown_or_invalid_sessions_are_error_events():
     assert [e.event for e in missing] == ["error"] and json.loads(missing[0].data)["code"] == 404
     invalid = await _collect(sessions, "../../etc")
     assert json.loads(invalid[0].data)["code"] == 400
-    with pytest.raises(LookupError):
+    with pytest.raises(NotFoundError):
         await sessions.cancel("22222222-2222-2222-2222-222222222222")
 
 

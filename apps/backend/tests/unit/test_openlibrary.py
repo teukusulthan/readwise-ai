@@ -2,7 +2,7 @@ import httpx
 import pytest
 
 from service.openlibrary import OpenLibraryClient
-from util.http_errors import ServiceUnavailableError
+from util.http_errors import NotFoundError, ServiceUnavailableError
 
 SEARCH_DOC = {
     "key": "/works/OL893415W", "title": "Dune", "author_name": ["Frank Herbert"], "first_publish_year": 1965,
@@ -32,7 +32,7 @@ def test_get_by_isbn_maps_metadata_and_description():
 
 
 def test_unknown_isbn_is_not_found():
-    with pytest.raises(LookupError):
+    with pytest.raises(NotFoundError):
         _client(lambda r: httpx.Response(200, json={"docs": []})).get_by_isbn("9780441013593")
 
 

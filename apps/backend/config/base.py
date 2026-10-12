@@ -189,6 +189,11 @@ class BaseSetting(BaseSettings):
     # Reasoning models (e.g. Nemotron) spend part of this on hidden "thinking" (measured: 300-1300 tokens),
     # so a small budget can leave an empty or cut-off answer.
     LLM_MAX_TOKENS: int = Field(default=4000)
+    # Passed to LiteLLM on every request: whole-request timeout and retries on transient failures.
+    LLM_TIMEOUT_SECONDS: float = Field(default=120)
+    LLM_NUM_RETRIES: int = Field(default=2)
+    # Streaming only: max wait from request start to the first content/reasoning token.
+    LLM_FIRST_TOKEN_TIMEOUT_SECONDS: float = Field(default=90)
 
     # Book metadata import
     OPENLIBRARY_BASE_URL: str = Field(default="https://openlibrary.org")

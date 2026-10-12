@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · LLM timeouts and honest error codes (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/util/http_errors.py`, `apps/backend/service/llm.py`, `apps/backend/service/rag.py`, `apps/backend/service/book.py`, `apps/backend/service/conversation.py`, `apps/backend/service/chat_session.py`, `apps/backend/service/openlibrary.py`, `apps/backend/config/base.py`, `apps/backend/.env.example`, `apps/backend/tests/unit/test_error_codes.py`, `docs/architecture.md`
+> LiteLLM requests now carry `BE_LLM_TIMEOUT_SECONDS` (120) and `BE_LLM_NUM_RETRIES` (2); a streamed answer with no content/reasoning token within `BE_LLM_FIRST_TOKEN_TIMEOUT_SECONDS` (90) is cancelled and ends with the error event "The model took too long to respond. Try again." (the conversation claim is released as for any error). `NotFoundError` replaces `LookupError` as the 404 signal (a stray `KeyError`/`IndexError` is now a logged 500). `EmbeddingError` and Qdrant connection failures give 503 "Search service unavailable" in REST and as the SSE error event.
+
 ### 2026-10-12 · Safe startup defaults (no sprint) · ✅ Done
 
 **Event:** Files modified
