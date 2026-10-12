@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Safe startup defaults (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/api.py`, `apps/backend/config/base.py`, `apps/backend/config/routers.py`, `apps/backend/util/{postgres,qdrant,embedding,mongo,redis}.py`, `apps/backend/project.json`, `apps/backend/.env.example`, `apps/backend/tests/unit/test_startup_defaults.py`, `apps/backend/tests/unit/test_app.py`, `docs/architecture.md`, `README.md`, `apps/backend/AI_GUIDE.md`
+> Empty `BE_ENABLED_ROUTERS` now mounts only the library routers (+health, auth); user/role/group/permission/upload and `/monitoring/threadpool` need an explicit listing. Auto-reload requires `--reload` (nx `serve` passes it). `BE_JWT_SECRET` (>=32 chars when JWT is active) and `BE_ENC_SECRET` (exactly 32 when encryption is active) are validated at startup. Service singletons use double-checked locking.
+
 ### 2026-10-12 · Book edits, deletes and attachments stay consistent with the index (no sprint) · ✅ Done
 
 **Event:** Files modified

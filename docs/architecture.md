@@ -293,7 +293,7 @@ uv sync && uv run python api.py --port 8020           # migrations run automatic
 cd apps/web && npm install && npm run dev             # http://localhost:3000
 ```
 
-Dev auto-reload watches only the source packages (`RELOAD_DIRS` in `api.py`): a reload kills indexing jobs running in the API process (they are marked failed and need **Reindex**), so editing `tests/`, `scripts/` or writing to `storage/` does not restart the server. After editing `api.py` itself, restart by hand.
+Dev auto-reload is opt-in (`--reload`; the nx `serve` target passes it) and watches only the source packages (`RELOAD_DIRS` in `api.py`): a reload kills indexing jobs running in the API process (they are marked failed and need **Reindex**), so editing `tests/`, `scripts/` or writing to `storage/` does not restart the server. After editing `api.py` itself, restart by hand.
 
 Ports taken by another project? Run the backend on another port and point the web proxy at it in `apps/web/env/.env`:
 `PORT=3001` and `BACKEND_PROXY_TARGET=http://localhost:8021`.
@@ -313,3 +313,10 @@ images and old page markers, prints a text PDF with headless Chrome, then uses t
 title, authors, year, subjects, cover → `/book/upload`). So seeding exercises exactly the same path as a user upload.
 Downloads and PDFs are cached in `storage/gutenberg/` (git-ignored); re-running skips books that already have a document.
 Use `--api` for another backend URL and `--token` when JWT is on.
+
+### Startup defaults
+
+- **Routers:** with `BE_ENABLED_ROUTERS` empty, only the library routers mount (`health`, `auth`, `book`, `search`, `chat`, `conversation`; list in `config/routers.py`). The legacy boilerplate admin surface (`user`, `role`, `group`, `permission`, `upload`, and `/monitoring/threadpool` as `monitoring`) mounts only when named in `BE_ENABLED_ROUTERS` / `--routers`. Explicit lists behave as before.
+- **Reload:** `uvicorn` reload is off unless `--reload` is passed (ignored with `--worker > 1`).
+- **Secrets:** with `BE_JWT_ACTIVE=true`, `BE_JWT_SECRET` must be at least 32 characters; with `BE_ENC_ACTIVE=true`, `BE_ENC_SECRET` must be exactly 32 (AES-256 key). Startup fails with the key name and a generator command otherwise.
+- **Singletons:** the Postgres pool, Qdrant, embedding, Mongo and Redis clients are created under a per-class lock (double-checked). The Postgres pool (`BE_POSTGRES_POOL_MAX_SIZE`, default 10) is intentionally smaller than the 64-thread worker pool: threads hold a connection only while querying and otherwise wait on the pool. The async Redis client is a process-wide singleton bound to the server's single event loop.

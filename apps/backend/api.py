@@ -5,6 +5,7 @@ from fastapi.exception_handlers import http_exception_handler as default_http_ex
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from config.base import Setting
+from config.routers import select_routers
 import argparse
 import os
 import sys
@@ -35,22 +36,29 @@ ROUTER_MODULES = {
     "conversation": "conversation",
 }
 
-# Routers that are always mounted, regardless of --routers / ENABLED_ROUTERS.
-ALWAYS_ON_ROUTERS = {"health"}
-
 # Source packages watched by the dev auto-reload (see uvicorn.run below).
 RELOAD_DIRS = ["auth", "config", "dto", "exceptions", "middleware", "models", "router", "service", "util"]
 
-argument_parser = argparse.ArgumentParser(
-    description="Issue Cluster", formatter_class=argparse.RawDescriptionHelpFormatter
-)
-argument_parser.add_argument("-p", "--port", help="Port", metavar="", default="8020")
-argument_parser.add_argument("-worker", "--worker", type=int, default=1)
-argument_parser.add_argument(
-    "-routers", "--routers", help="Include Routers", default=None
-)
-argument_parser.add_argument("-uenv", "--update_env", default=None)
-argument_parser.add_argument("-fenv", "--file_env", default=".env")
+def build_argument_parser():
+    parser = argparse.ArgumentParser(
+        description="Issue Cluster", formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("-p", "--port", help="Port", metavar="", default="8020")
+    parser.add_argument("-worker", "--worker", type=int, default=1)
+    parser.add_argument(
+        "-routers", "--routers", help="Include Routers", default=None
+    )
+    parser.add_argument("-uenv", "--update_env", default=None)
+    parser.add_argument("-fenv", "--file_env", default=".env")
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Dev only: restart on source changes (a restart kills running indexing jobs)",
+    )
+    return parser
+
+
+argument_parser = build_argument_parser()
 # parse_known_args: importing this module from pytest/uvicorn workers must not
 # fail on their own CLI arguments.
 args, _unknown_args = argument_parser.parse_known_args()
@@ -174,7 +182,6 @@ def _queue_size(executor):
         return None
 
 
-@app.get("/monitoring/threadpool", tags=["monitoring"])
 def threadpool_stats():
     threads = _pool_threads()
     return {
@@ -185,14 +192,12 @@ def threadpool_stats():
         "queue_size_best_effort": _queue_size(threadpool),
     }
 
-enable_routers = {
-    r.strip() for r in settings.ENABLED_ROUTERS.split(",") if r.strip()
-} or set(ROUTER_MODULES)
+
+selected_routers = select_routers(settings.ENABLED_ROUTERS, args.routers)
+if "monitoring" in selected_routers:
+    app.add_api_route("/monitoring/threadpool", threadpool_stats, methods=["GET"], tags=["monitoring"])
 for router_name, module_name in ROUTER_MODULES.items():
-    if router_name in ALWAYS_ON_ROUTERS or (
-        (not args.routers or router_name in args.routers)
-        and router_name in enable_routers
-    ):
+    if router_name in selected_routers:
         module = __import__(f"router.{module_name}", fromlist=["router"])
         app.include_router(module.router)
 
@@ -203,7 +208,8 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=int(args.port),
         workers=args.worker,
-        reload=False if args.worker > 1 else True,
+        # Off by default: the reloader kills running ingestions on any file change.
+        reload=args.reload and args.worker == 1,
         # Watch app code only: a reload kills running indexing jobs, so editing tests/,
         # scripts/ or writing to storage/ must not restart the server.
         # (api.py itself is not watched — restart by hand after editing it.)

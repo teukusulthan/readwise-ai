@@ -1,3 +1,4 @@
+import threading
 import time
 from typing import Optional
 
@@ -125,21 +126,24 @@ class EmbeddingClient:
 class EmbeddingService:
 
     instance = None
+    _lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs):
         if cls.instance is None:
-            if not settings.ENGINE_EMBEDDING_BASE_URL or not settings.ENGINE_EMBEDDING_MODEL:
-                raise RuntimeError(
-                    "Embedding service is not configured "
-                    "(set BE_ENGINE_EMBEDDING_BASE_URL and BE_ENGINE_EMBEDDING_MODEL)."
-                )
-            cls.instance = EmbeddingClient(
-                base_url=settings.ENGINE_EMBEDDING_BASE_URL,
-                model=settings.ENGINE_EMBEDDING_MODEL,
-                dimensions=settings.ENGINE_EMBEDDING_DIMENSIONS,
-                batch_size=settings.ENGINE_EMBEDDING_BATCH_SIZE,
-                timeout=settings.ENGINE_EMBEDDING_TIMEOUT_SECONDS,
-                max_retries=settings.ENGINE_EMBEDDING_MAX_RETRIES,
-                query_instruction=settings.ENGINE_EMBEDDING_QUERY_INSTRUCTION or None,
-            )
+            with cls._lock:
+                if cls.instance is None:
+                    if not settings.ENGINE_EMBEDDING_BASE_URL or not settings.ENGINE_EMBEDDING_MODEL:
+                        raise RuntimeError(
+                            "Embedding service is not configured "
+                            "(set BE_ENGINE_EMBEDDING_BASE_URL and BE_ENGINE_EMBEDDING_MODEL)."
+                        )
+                    cls.instance = EmbeddingClient(
+                        base_url=settings.ENGINE_EMBEDDING_BASE_URL,
+                        model=settings.ENGINE_EMBEDDING_MODEL,
+                        dimensions=settings.ENGINE_EMBEDDING_DIMENSIONS,
+                        batch_size=settings.ENGINE_EMBEDDING_BATCH_SIZE,
+                        timeout=settings.ENGINE_EMBEDDING_TIMEOUT_SECONDS,
+                        max_retries=settings.ENGINE_EMBEDDING_MAX_RETRIES,
+                        query_instruction=settings.ENGINE_EMBEDDING_QUERY_INSTRUCTION or None,
+                    )
         return cls.instance

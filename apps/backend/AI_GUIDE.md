@@ -111,7 +111,7 @@ Adding feature to existing module?
 4. ✅ Create/update DTO in `dto/{module}.py`
 5. ✅ Create/update service in `service/{module}.py` (extend `BaseMongoRepository`)
 6. ✅ Create/update router in `router/{module}.py`
-7. ✅ Register in `api.py` (`ROUTER_MODULES`) if new module
+7. ✅ Register in `api.py` (`ROUTER_MODULES`) if new module; add it to `LIBRARY_ROUTERS` in `config/routers.py` if it should mount by default
 8. ✅ Update `docs/api-spec.md` endpoint registry
 9. ✅ Update `docs/database-schema.md` if schema changed
 
@@ -210,11 +210,15 @@ tests/
 ## 📞 Quick Commands
 
 ```bash
-# Run the server
+# Run the server (--reload = dev auto-restart on source changes; off by default because a
+# restart kills running ingestions)
 uv run python api.py --port 8020
+uv run python api.py --port 8020 --reload
 
-# Run with specific routers
+# Run with specific routers (an explicit list is how legacy routers are opted into)
 uv run python api.py --routers auth,user[get-all:get-one]
+# Empty BE_ENABLED_ROUTERS = safe default: health, auth, book, search, chat, conversation.
+# user, role, group, permission, upload and "monitoring" (/monitoring/threadpool) mount only when listed.
 
 # Run tests
 uv run pytest

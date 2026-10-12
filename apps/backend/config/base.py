@@ -1,6 +1,6 @@
 import re
 from dotenv import dotenv_values
-from pydantic.v1 import BaseSettings, Field, validator
+from pydantic.v1 import BaseSettings, Field, root_validator, validator
 from dotenv import load_dotenv
 from loguru import logger
 import os
@@ -12,6 +12,9 @@ logger.debug("Status load env {e}", e=load_dotenv(".env", override=True))
 # (e.g. BE_MONGO_URI). Field names in `BaseSetting` stay unprefixed, so app
 # code keeps reading `settings.MONGO_URI`.
 ENV_PREFIX = "BE_"
+
+MIN_SECRET_LENGTH = 32
+_SECRET_HINT = 'generate one with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
 
 
 def strip_env_prefix(key):
@@ -196,6 +199,22 @@ class BaseSetting(BaseSettings):
         if value == "" and field.allow_none:
             return None
         return value
+
+    @root_validator(skip_on_failure=True)
+    def secrets_are_strong_when_active(cls, values):
+        # PyJWT signs happily with an empty key, so an unset secret would silently mint forgeable tokens.
+        if values.get("JWT_ACTIVE") and len(values.get("JWT_SECRET") or "") < MIN_SECRET_LENGTH:
+            raise ValueError(
+                f"{ENV_PREFIX}JWT_SECRET must be at least {MIN_SECRET_LENGTH} characters when "
+                f"{ENV_PREFIX}JWT_ACTIVE is true; {_SECRET_HINT}"
+            )
+        # ENC_SECRET is used as an AES key: 48 chars (token_urlsafe(48)) would crash every response.
+        if values.get("ENC_ACTIVE") and len(values.get("ENC_SECRET") or "") != MIN_SECRET_LENGTH:
+            raise ValueError(
+                f"{ENV_PREFIX}ENC_SECRET is an AES-256 key and must be exactly {MIN_SECRET_LENGTH} "
+                'characters; generate one with: python -c "import secrets; print(secrets.token_hex(16))"'
+            )
+        return values
 
     class Config:
         env_file = ".env"

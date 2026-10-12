@@ -7,7 +7,7 @@
     "serve": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "uv run python api.py --port 8020",
+        "command": "uv run python api.py --port 8020 --reload",
         "cwd": "apps/backend",
         "env": {
           "LOGURU_LEVEL": "WARNING"

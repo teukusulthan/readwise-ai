@@ -61,13 +61,13 @@ async def test_oversized_request_rejected_by_app(client, settings):
 
 
 async def test_protected_route_requires_auth(client):
-    resp = await client.post("/group/get-all", json={})
+    resp = await client.post("/book/get-all", json={})
     assert resp.status_code == 401
 
 
 def test_expected_routers_are_mounted(app):
     paths = {route.path for route in app.routes}
-    for path in ("/health", "/health/ready", "/auth/login", "/role/get-all", "/upload/upload-file"):
+    for path in ("/health", "/health/ready", "/auth/login", "/book/get-all", "/search/query"):
         assert path in paths
 
 

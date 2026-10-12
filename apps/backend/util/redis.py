@@ -1,3 +1,5 @@
+import threading
+
 from config.base import settings
 import redis
 from redis.asyncio import Redis as AsyncRedis
@@ -6,14 +8,17 @@ from redis.asyncio import Redis as AsyncRedis
 class RedisService:
 
     instance = None
+    _lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs):
         if cls.instance is None:
-            cls.instance = redis.Redis(host=settings.REDIS_HOST,
-                                       port=settings.REDIS_PORT,
-                                       password=settings.REDIS_PASSWORD,
-                                       decode_responses=True,
-                                       db=settings.REDIS_DB)
+            with cls._lock:
+                if cls.instance is None:
+                    cls.instance = redis.Redis(host=settings.REDIS_HOST,
+                                               port=settings.REDIS_PORT,
+                                               password=settings.REDIS_PASSWORD,
+                                               decode_responses=True,
+                                               db=settings.REDIS_DB)
         return cls.instance
 
 
@@ -30,44 +35,56 @@ class NewRedisService:
 
 
 class AsyncRedisService:
+    """Process-wide async client. Creation is race-free; note redis.asyncio connections bind to
+    the event loop that first uses them, so this singleton is only valid for the single loop
+    the server runs (do not share it across loops, e.g. in separate asyncio.run() calls)."""
 
     instance = None
+    _lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs):
         if cls.instance is None:
-            cls.instance = AsyncRedis(host=settings.REDIS_HOST,
-                                       port=settings.REDIS_PORT,
-                                       password=settings.REDIS_PASSWORD,
-                                       decode_responses=True,
-                                       db=settings.REDIS_DB)
+            with cls._lock:
+                if cls.instance is None:
+                    cls.instance = AsyncRedis(host=settings.REDIS_HOST,
+                                               port=settings.REDIS_PORT,
+                                               password=settings.REDIS_PASSWORD,
+                                               decode_responses=True,
+                                               db=settings.REDIS_DB)
         return cls.instance
 
 
 class RedisConfigHandlerService:
 
     instance = None
+    _lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs):
         if cls.instance is None:
-            cls.instance = redis.Redis(host=settings.REDIS_HOST,
-                                       port=settings.REDIS_PORT,
-                                       password=settings.REDIS_PASSWORD,
-                                       decode_responses=True,
-                                       db=settings.REDIS_DB_CONFIG_HANDLER)
+            with cls._lock:
+                if cls.instance is None:
+                    cls.instance = redis.Redis(host=settings.REDIS_HOST,
+                                               port=settings.REDIS_PORT,
+                                               password=settings.REDIS_PASSWORD,
+                                               decode_responses=True,
+                                               db=settings.REDIS_DB_CONFIG_HANDLER)
         return cls.instance
 
 
 class AsyncRedisAIAssistantService:
 
     instance = None
+    _lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs):
         if cls.instance is None:
-            cls.instance = AsyncRedis(host=settings.REDIS_HOST_AI_ASSISTANT,
-                                       port=settings.REDIS_PORT_AI_ASSISTANT,
-                                       password=settings.REDIS_PASSWORD_AI_ASSISTANT,
-                                       decode_responses=True,
-                                       db=settings.REDIS_DB_AI_ASSISTANT,
-                                       socket_keepalive=True,
-                                       health_check_interval=30)
+            with cls._lock:
+                if cls.instance is None:
+                    cls.instance = AsyncRedis(host=settings.REDIS_HOST_AI_ASSISTANT,
+                                               port=settings.REDIS_PORT_AI_ASSISTANT,
+                                               password=settings.REDIS_PASSWORD_AI_ASSISTANT,
+                                               decode_responses=True,
+                                               db=settings.REDIS_DB_AI_ASSISTANT,
+                                               socket_keepalive=True,
+                                               health_check_interval=30)
         return cls.instance

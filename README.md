@@ -59,7 +59,7 @@ docker compose up -d
 cd apps/backend
 cp .env.example .env        # fill in values; every key carries the BE_ prefix
 uv sync
-uv run python api.py --port 8020
+uv run python api.py --port 8020 --reload   # --reload = dev auto-restart; omit it for anything long-running
 
 # 3. Web — http://localhost:3000
 cd apps/web
