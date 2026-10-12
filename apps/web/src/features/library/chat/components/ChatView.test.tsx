@@ -256,9 +256,11 @@ describe('ChatView — completion announcement', PAGE_TEST, () => {
     await waitFor(() => expect(announcement()).toHaveTextContent('Answer stopped'))
   })
 
-  it('announces a failed answer with its message', async () => {
+  it('leaves a failure to the answer alert: the status region stays silent', async () => {
     const stream = await startTurn()
     stream.emit({ type: 'error', error: { message: 'The model is unavailable.' } } as never, '3-0')
-    await waitFor(() => expect(announcement()).toHaveTextContent('Answer failed: The model is unavailable.'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The model is unavailable.')
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(announcement()).toHaveTextContent('')
   })
 })

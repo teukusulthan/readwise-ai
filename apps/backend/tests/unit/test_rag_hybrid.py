@@ -50,6 +50,13 @@ def test_split_general_tolerates_markdown_and_inline_text():
     assert split_general("Only books [1].") == ("Only books [1].", None)
 
 
+def test_split_general_requires_the_colon():
+    assert split_general("Fact [1].\n\nGeneral knowledge of the era says more.") == ("Fact [1].\n\nGeneral knowledge of the era says more.", None)
+    assert split_general("Fact [1].\nGeneral knowledge\nno colon.")[1] is None
+    assert split_general("Fact [1].\n\nGENERAL KNOWLEDGE:\nMore.")[1] == "\nMore."
+    assert split_general("Fact [1].\n**General knowledge:** More.")[1] == "More."
+
+
 def test_book_answer_with_general_section_keeps_both_parts_apart():
     result, prompts = _ask(Retrieval(hits=[_hit(1), _hit(2)], searched_book_ids=["b1"]),
                            "Action comes before motivation [2].\n\ngeneral knowledge:\nThe idea is also known as behavioral activation.")

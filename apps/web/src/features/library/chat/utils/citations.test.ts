@@ -28,10 +28,14 @@ describe('splitGeneralKnowledge', () => {
     expect(splitGeneralKnowledge('A [1].\n**General knowledge**:\nClear wrote it.')[1]).toBe('\nClear wrote it.')
   })
 
+  it('keeps text after the colon on the heading line in the general part', () => {
+    expect(splitGeneralKnowledge('A [1].\n**General knowledge:** Clear wrote it.')).toEqual(['A [1].\n', 'Clear wrote it.'])
+    expect(splitGeneralKnowledge('A [1].\nGeneral knowledge: Clear wrote it.')[1]).toBe('Clear wrote it.')
+  })
+
   it('does not split on ordinary sentences that merely start with the words', () => {
     expect(splitGeneralKnowledge('General knowledge of history helps. It is [1].')).toEqual(['General knowledge of history helps. It is [1].', null])
     expect(splitGeneralKnowledge('A [1].\n\nGeneral knowledge of the era says more.')[1]).toBeNull()
-    expect(splitGeneralKnowledge('A [1].\nGeneral knowledge: Clear wrote it.')[1]).toBeNull()
     expect(splitGeneralKnowledge('A [1].\nGeneral knowledge\nbut no colon.')[1]).toBeNull()
   })
 

@@ -98,8 +98,10 @@ Hard rules:
 SYSTEM_PROMPT = SYSTEM_PROMPT_STRICT
 
 _CITATION_RE = re.compile(r"\[(\d{1,2})\]")
-# Tolerates stray Markdown, lower case and a missing colon around the heading.
-_GENERAL_RE = re.compile(r"^[ \t>*_#-]*general knowledge\s*[:：]?[*_ \t]*", re.IGNORECASE | re.MULTILINE)
+# A line starting with optional Markdown decoration, "general knowledge" (any case) and a REQUIRED
+# colon; text after the colon on the same line belongs to the general part. Same rule as the web
+# (utils/citations.ts GENERAL_HEADING_RE), so "General knowledge of ..." never splits.
+_GENERAL_RE = re.compile(r"^[ \t>*_#-]*general knowledge[ \t]*[*_]*[ \t]*[:：][*_ \t]*", re.IGNORECASE | re.MULTILINE)
 
 # (system_prompt, user_prompt) -> answer text
 Generator = Callable[[str, str], str]

@@ -130,11 +130,11 @@ POST /chat/stream {same, conversationId?}         (SSE: conversation → status 
 ```
 
 The web shows the general-knowledge part in its own box ("General knowledge · not from your books") without
-citation chips, so it can never be mistaken for book content. The split only happens on a line holding just the
-heading (`GENERAL KNOWLEDGE:`, case and Markdown decoration tolerated), never on a sentence that starts with those
+citation chips, so it can never be mistaken for book content. The split only happens on a line starting with the
+heading and a required colon (`GENERAL KNOWLEDGE:`, same rule in the backend; case and Markdown decoration tolerated), never on a sentence that starts with those
 words. Answers render as safe Markdown (`react-markdown` + `remark-gfm`, no raw HTML, links open in a new tab,
 images shown as alt text) with `[n]` citation chips inside paragraphs, lists and tables. A visually hidden live
-region announces "Answer ready" / "Answer stopped" / the error once per turn; the streaming text is not a live region.
+region announces "Answer ready" / "Answer stopped" once per turn (errors are spoken by the answer's alert); the streaming text is not a live region.
 
 ### 4.5 Chat history (saved conversations)
 

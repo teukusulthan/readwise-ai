@@ -5,13 +5,12 @@ export type TAnswerSegment = { type: 'text'; text: string } | { type: 'cite'; n:
 const CITATION_RE = /\[(\d{1,2})\]/g
 
 /**
- * The heading the model is told to put on its own line before the general-knowledge part
- * (backend: service/rag.py GENERAL_HEADING, "GENERAL KNOWLEDGE:"). The line must hold nothing
- * else, so a sentence that merely starts with "General knowledge of ..." is not mistaken for it.
- * Tolerates case and Markdown decoration (`**General knowledge:**`, `## General knowledge:`).
- * Matches as soon as the heading line is complete while streaming.
+ * A line starting with optional Markdown decoration, "general knowledge" (any case) and a REQUIRED
+ * colon (backend: service/rag.py GENERAL_HEADING / _GENERAL_RE use the same rule). Text after the
+ * colon on the same line belongs to the general part. "General knowledge of ..." never splits.
+ * Matches as soon as the colon has streamed in.
  */
-const GENERAL_HEADING_RE = /^[ \t>#*_-]*general knowledge[ \t]*[*_]*[ \t]*[:：][*_ \t]*$/im
+const GENERAL_HEADING_RE = /^[ \t>#*_-]*general knowledge[ \t]*[*_]*[ \t]*[:：][*_ \t]*/im
 
 /** `[bookPart, generalPart]`; `generalPart` is null when the answer has no general-knowledge section. */
 export function splitGeneralKnowledge(text: string): [string, string | null] {

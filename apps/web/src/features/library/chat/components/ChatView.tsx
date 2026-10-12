@@ -174,7 +174,7 @@ export function ChatView() {
     error: state.error,
   }
 
-  // One short spoken message per turn. The streaming text itself is not a live region (it would
+  // One short spoken message per turn (failures are spoken by the answer's role="alert" instead). The streaming text itself is not a live region (it would
   // be read token by token); this region only changes when the turn ends.
   const announcement = revealing
     ? ''
@@ -182,9 +182,7 @@ export function ChatView() {
       ? 'Answer ready'
       : state.phase === 'stopped'
         ? 'Answer stopped'
-        : state.phase === 'error'
-          ? `Answer failed${state.error ? `: ${state.error}` : ''}`
-          : ''
+        : ''
 
   // The refetched conversation replaces the live bubble, so wait until its text is fully shown.
   useEffect(() => {
