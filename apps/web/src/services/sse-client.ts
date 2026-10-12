@@ -1,4 +1,6 @@
 import env from '@/config/env'
+import { refreshSession } from './api-client'
+import { handleSessionExpired } from './session-expiry'
 
 /**
  * Server-Sent Events over `fetch` (POST + JSON body, or GET to resume), for endpoints like /chat/stream.
@@ -79,15 +81,30 @@ interface IStreamSseOptions<TBody> {
   onMessage: (message: ISseMessage) => void
 }
 
-/** POST `body` and invoke `onMessage` for every SSE frame until the stream closes. */
+/**
+ * POST `body` and invoke `onMessage` for every SSE frame until the stream closes.
+ * A 401 (expired access cookie) refreshes the session once and retries, like apiClient; if that fails the
+ * session is over (handleSessionExpired) and the 401 is thrown.
+ */
 export async function streamSse<TBody>({ path, body, signal, onMessage }: IStreamSseOptions<TBody>): Promise<void> {
-  const response = await fetch(`${env.api.baseUrl}${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: body === undefined ? { Accept: 'text/event-stream' } : { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    credentials: 'include',
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal,
-  })
+  const request = () =>
+    fetch(`${env.api.baseUrl}${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: body === undefined ? { Accept: 'text/event-stream' } : { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      credentials: 'include',
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
+    })
+
+  let response = await request()
+  if (response.status === 401) {
+    const refreshed = await refreshSession().then(
+      () => true,
+      () => false,
+    )
+    if (refreshed) response = await request()
+    if (response.status === 401) handleSessionExpired()
+  }
 
   if (!response.ok) throw new SseHttpError(await readErrorMessage(response), response.status)
   if (!response.body || !(response.headers.get('content-type') ?? '').includes('text/event-stream')) {

@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { useAuthStore } from '@/stores/useAuthStore'
@@ -9,7 +9,7 @@ function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/auth/login" element={<p>Login page</p>} />
+        <Route path="/login" element={<LoginProbe />} />
         <Route
           path="/private"
           element={
@@ -23,15 +23,20 @@ function renderAt(path: string) {
   )
 }
 
+function LoginProbe() {
+  const location = useLocation()
+  return <p>Login page {location.search}</p>
+}
+
 describe('AuthGuard', () => {
   afterEach(() => {
     useAuthStore.getState().clearAuth()
   })
 
-  it('redirects to /auth/login when not authenticated', () => {
-    renderAt('/private')
+  it('redirects to /login?next=<path> when not authenticated', () => {
+    renderAt('/private?tab=2')
 
-    expect(screen.getByText('Login page')).toBeInTheDocument()
+    expect(screen.getByText('Login page ?next=%2Fprivate%3Ftab%3D2')).toBeInTheDocument()
     expect(screen.queryByText('Private content')).not.toBeInTheDocument()
   })
 

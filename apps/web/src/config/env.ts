@@ -13,6 +13,10 @@ const env = {
   map: {
     mapboxToken: import.meta.env.VITE_MAPBOX_TOKEN ?? '',
   },
+  auth: {
+    /** Login, register and the route guard. Off (default) = the no-login setup (backend BE_JWT_ACTIVE=false). */
+    enabled: import.meta.env.VITE_AUTH_ENABLED === 'true',
+  },
   app: {
     mode: import.meta.env.MODE ?? 'development',
   },

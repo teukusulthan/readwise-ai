@@ -13,6 +13,8 @@ export const API_ENDPOINTS = {
     LOGIN: `${SUFFIX_BASE}/auth/login`,
     LOGOUT: `${SUFFIX_BASE}/auth/logout`,
     REGISTER: `${SUFFIX_BASE}/auth/register`,
+    /** POST `?otp=` — confirms a registration when email verification is on */
+    VERIFICATION: `${SUFFIX_BASE}/auth/verification`,
     REFRESH: `${SUFFIX_BASE}/auth/refresh`,
     VALIDATE: `${SUFFIX_BASE}/auth/validate`,
     FORGOT_PASSWORD_REQUEST: `${SUFFIX_BASE}/auth/forgot-password/request`,

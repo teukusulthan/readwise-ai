@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Login, register and sign-out behind `VITE_AUTH_ENABLED` (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/web/src/features/auth/{components,hooks,schemas,types}/*`, `apps/web/src/pages/auth/{LoginPage,RegisterPage}.tsx`, `apps/web/src/components/layouts/{AuthLayout,AppHeader}.tsx`, `apps/web/src/routes/{index,app.routes,auth.routes}.tsx`, `apps/web/src/routes/guards/{AuthGuard,RoleGuard}.tsx`, `apps/web/src/services/{api-client,sse-client,session-expiry,auth.service,api-endpoints,api-error}.ts`, `apps/web/src/utils/auth-redirect.ts`, `apps/web/src/config/env.ts`, `apps/web/env/.env.example`, `apps/web/src/types/models.d.ts`, `apps/web/src/vite-env.d.ts`, tests alongside
+> New `VITE_AUTH_ENABLED` (default `false` = unchanged no-login app). When `true`: `/login` (email or username + password) and `/register` (with the emailed-code step when the backend verifies emails) mount without the app shell, every app route is wrapped in `AuthGuard` (`buildAppRoutes`), the header shows the signed-in user and "Sign out", and a 401 that `/auth/refresh` cannot fix — from axios or the chat SSE stream, which now refreshes once and retries — clears the user and cached queries and goes to `/login?next=<path>` (`next` limited to in-app paths). Sign-in/sign-out clear the TanStack cache so per-user conversations never leak between accounts. Forms use React Hook Form + zod. Login/register are not menu entries (public auth pages outside the shell).
+
 ### 2026-10-12 · Upload components move into a feature folder (no sprint) · ✅ Done
 
 **Event:** Files modified

@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { refreshSession } from './api-client'
+import { handleSessionExpired } from './session-expiry'
 import { createSseParser, SseHttpError, streamSse, type ISseMessage } from './sse-client'
+
+vi.mock('./api-client', () => ({ refreshSession: vi.fn() }))
+vi.mock('./session-expiry', () => ({ handleSessionExpired: vi.fn() }))
 
 function parseWithIds(chunks: string[]): ISseMessage[] {
   const messages: ISseMessage[] = []
@@ -76,6 +81,7 @@ function streamingResponse(chunks: string[], signal?: AbortSignal) {
 describe('streamSse', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.clearAllMocks()
   })
 
   it('cancels the reader when the stream is aborted, not just releases the lock', async () => {
@@ -124,5 +130,27 @@ describe('streamSse', () => {
     const error = await streamSse({ path: '/chat/stream', body: {}, onMessage: vi.fn() }).catch((e: unknown) => e)
     expect(error).toBeInstanceOf(SseHttpError)
     expect(error).toMatchObject({ message, status: 409 })
+  })
+
+  it('refreshes the session once on a 401 and retries the request', async () => {
+    const { response } = streamingResponse([])
+    const unauthorized = new Response('{"detail":"Expired token."}', { status: 401, headers: { 'Content-Type': 'application/json' } })
+    const fetchMock = vi.fn().mockResolvedValueOnce(unauthorized).mockResolvedValueOnce(response)
+    vi.stubGlobal('fetch', fetchMock)
+    vi.mocked(refreshSession).mockResolvedValueOnce()
+    response.body.getReader().read.mockResolvedValueOnce({ done: true, value: undefined } as never)
+
+    await streamSse({ path: '/chat/stream', body: { question: 'q' }, onMessage: vi.fn() })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(handleSessionExpired).not.toHaveBeenCalled()
+  })
+
+  it('ends the session when a 401 cannot be refreshed', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"detail":"Authentication required."}', { status: 401 })))
+    vi.mocked(refreshSession).mockRejectedValueOnce(new Error('refresh failed'))
+
+    const error = await streamSse({ path: '/chat/stream', body: {}, onMessage: vi.fn() }).catch((e: unknown) => e)
+    expect(error).toMatchObject({ status: 401, message: 'Authentication required.' })
+    expect(handleSessionExpired).toHaveBeenCalledTimes(1)
   })
 })

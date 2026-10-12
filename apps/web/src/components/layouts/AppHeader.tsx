@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom'
 
+import env from '@/config/env'
+import { AccountMenu } from '@/features/auth/components/AccountMenu'
 import { renderIcon } from '@/utils/icon-renderer'
 
 function AppHeader() {
@@ -17,6 +19,7 @@ function AppHeader() {
           <span className="hidden text-body-sm text-font-secondary sm:block">Answers grounded in your books</span>
         </span>
       </Link>
+      {env.auth.enabled && <AccountMenu />}
     </header>
   )
 }

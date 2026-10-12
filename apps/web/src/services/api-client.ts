@@ -1,8 +1,8 @@
 import env from '@/config/env';
-import { useAuthStore } from '@/stores/useAuthStore';
 import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { API_ENDPOINTS } from './api-endpoints';
 import { toApiError } from './api-error';
+import { handleSessionExpired } from './session-expiry';
 
 /**
  * API Client instance with Axios
@@ -33,6 +33,15 @@ const apiClient: AxiosInstance = axios.create({
     Accept: 'application/json',
   },
 });
+
+/**
+ * Ask the backend for new auth cookies (it reads the HttpOnly `refresh_token` cookie and sets new `token` /
+ * `refresh_token` cookies). Bare axios, not apiClient, so a failing refresh can't recurse into the interceptor.
+ * Also used by the SSE client, which does not go through axios.
+ */
+export async function refreshSession(): Promise<void> {
+  await axios.get(API_ENDPOINTS.AUTH.REFRESH, { baseURL: env.api.baseUrl, withCredentials: true });
+}
 
 // Request Interceptor
 apiClient.interceptors.request.use(
@@ -77,27 +86,17 @@ apiClient.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        // Call refresh token endpoint with credentials
-        // The server should read 'refresh_token' cookie and set new 'token' & 'refresh_token' cookies
-        // Bare axios (not apiClient) so a failing refresh can't recurse into this interceptor.
-        await axios.get(API_ENDPOINTS.AUTH.REFRESH, {
-          baseURL: apiClient.defaults.baseURL,
-          withCredentials: true
-        });
+        await refreshSession();
 
         processQueue(null);
         return apiClient(originalRequest);
       } catch (refreshError) {
-        // If refresh fails, the server should ideally clear cookies via Set-Cookie
         processQueue(refreshError);
 
-        // Clear auth state in store
-        useAuthStore.getState().clearAuth();
+        // Forget the user (and, with VITE_AUTH_ENABLED, go to /login?next=<current page>).
+        handleSessionExpired();
 
-        // Optional: Manual redirect if needed
-        // window.location.href = '/auth/login';
-
-        return Promise.reject(refreshError);
+        return Promise.reject(toApiError(error));
       } finally {
         isRefreshing = false;
       }

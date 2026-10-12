@@ -2,6 +2,7 @@ import React from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 
 import { useAuthStore } from '@/stores/useAuthStore'
+import { loginPathFor } from '@/utils/auth-redirect'
 
 interface RoleGuardProps {
   children: React.ReactNode
@@ -14,7 +15,7 @@ const RoleGuard: React.FC<RoleGuardProps> = ({ children, allowedRoles }) => {
   const location = useLocation()
 
   if (!isAuthenticated) {
-    return <Navigate to="/auth/login" state={{ from: location }} replace />
+    return <Navigate to={loginPathFor(`${location.pathname}${location.search}`)} replace />
   }
 
   if (!allowedRoles.includes(userRole)) {

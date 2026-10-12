@@ -21,4 +21,11 @@ describe('env config', () => {
     const env = await loadEnv()
     expect(env.api.baseUrl).toBe('https://api.example.test/v1')
   })
+
+  it('keeps accounts off unless VITE_AUTH_ENABLED is "true"', async () => {
+    vi.stubEnv('VITE_AUTH_ENABLED', '')
+    expect((await loadEnv()).auth.enabled).toBe(false)
+    vi.stubEnv('VITE_AUTH_ENABLED', 'true')
+    expect((await loadEnv()).auth.enabled).toBe(true)
+  })
 })

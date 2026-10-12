@@ -1,7 +1,7 @@
 import type { AxiosError, AxiosResponse } from 'axios'
 
 /**
- * Error every `apiClient` request rejects with (except a failed 401 refresh, which rejects with the refresh error).
+ * Error every `apiClient` request rejects with (a 401 whose refresh failed rejects with the original 401).
  * `message` is the backend's own message. The axios fields callers may read (`response`, `config`, `code`) are kept.
  */
 export class ApiError extends Error {
