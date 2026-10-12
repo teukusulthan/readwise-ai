@@ -349,3 +349,27 @@ async def test_stream_endpoint_answers_409_before_any_stream_starts(monkeypatch)
     assert response.headers["content-type"].startswith("application/json")
     assert response.json()["detail"]["metaData"]["message"] == TURN_RUNNING_MESSAGE
     assert store.active[CONVERSATION_ID] == "live"
+
+
+async def test_leaked_claim_is_taken_over_after_the_stale_window(monkeypatch):
+    from config.base import settings
+
+    sessions, store, _ = _sessions()
+    leaked = await sessions.claim(CONTINUE)          # claimed, but start() never runs
+    assert store.active[CONVERSATION_ID] == leaked and store.metas[leaked]["status"] == "running"
+    with pytest.raises(ConflictError):
+        await sessions.claim(CONTINUE)               # still within the heartbeat window
+    monkeypatch.setattr(settings, "CHAT_SESSION_STALE_SECONDS", 0)
+    store.metas[leaked]["heartbeat"] = str(time.time() - 1)
+    assert store.active[CONVERSATION_ID] == leaked
+    taker = await sessions.claim(CONTINUE)
+    assert store.active[CONVERSATION_ID] == taker
+
+
+async def test_start_after_claim_keeps_the_claimed_session_meta():
+    sessions, store, fake = _sessions()
+    session_id = await sessions.claim(CONTINUE)
+    created = store.metas[session_id]["created_at"]
+    await sessions.start(CONTINUE, session_id)
+    await asyncio.wait_for(_collect(sessions, session_id), 5)
+    assert store.metas[session_id]["created_at"] == created

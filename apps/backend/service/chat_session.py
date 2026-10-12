@@ -199,8 +199,12 @@ class ChatSessions:
         """
         session_id = str(uuid.uuid4())
         conversation_id = self._requested_conversation(dto)
-        if conversation_id and not await self._claim(conversation_id, session_id):
-            raise ConflictError(TURN_RUNNING_MESSAGE)
+        if conversation_id:
+            # Meta (status + heartbeat) first: a claim leaked before start() runs (client gone, process
+            # died) then has no live heartbeat and is taken over after CHAT_SESSION_STALE_SECONDS.
+            await self.store.create(session_id)
+            if not await self._claim(conversation_id, session_id):
+                raise ConflictError(TURN_RUNNING_MESSAGE)
         return session_id
 
     async def _claim(self, conversation_id: str, session_id: str) -> bool:
@@ -211,8 +215,6 @@ class ChatSessions:
             if holder is None:
                 continue
             meta = await self.store.meta(holder)
-            if not meta:  # claimed a moment ago, session not created yet (or both keys are about to expire)
-                return False
             fresh = time.time() - float(meta.get("heartbeat") or 0) <= settings.CHAT_SESSION_STALE_SECONDS
             if meta.get("status") == "running" and fresh:
                 return False
@@ -227,7 +229,8 @@ class ChatSessions:
         if session_id is None:
             session_id = await self.claim(dto)
         try:
-            await self.store.create(session_id)
+            if not await self.store.meta(session_id):  # claim() already created it for a continued conversation
+                await self.store.create(session_id)
             await self.store.append(session_id, "session", json.dumps({"sessionId": session_id}))
         except BaseException:
             await self._release(self._requested_conversation(dto), session_id)

@@ -161,7 +161,7 @@ browser ◄── SSE (id = Redis stream entry id) ◄── ChatSessions.events
 ```
 
 `service/chat_session.py`. Redis keys (TTL `BE_CHAT_SESSION_TTL_SECONDS`, default 1 h): `chat:session:{id}:events` (stream),
-`chat:session:{id}` (hash: status, conversation_id, heartbeat), `chat:session:{id}:cancel`, `chat:conversation:{cid}:active`.
+`chat:session:{id}` (hash: status, conversation_id, heartbeat), `chat:session:{id}:cancel`, `chat:conversation:{cid}:active` (the claim: set with `SET NX EX` before the stream starts, so only one turn runs per conversation — a second `POST /chat/stream` gets HTTP 409 "A question is already being answered in this conversation."; released by atomic compare-and-delete on finish/cancel/error; a claim whose session heartbeat is stale is taken over).
 The runner refreshes `heartbeat` every 2 s; a reader that sees a "running" session without heartbeat for
 `BE_CHAT_SESSION_STALE_SECONDS` (30) reports it as interrupted instead of waiting forever. On shutdown, running
 answers are cancelled so their partial text is saved. Web: `useAskStream` (`ask`, `attach`, `cancel`, `detach`).
