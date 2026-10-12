@@ -61,7 +61,7 @@ export function ChatView() {
 
   const saved = conversation.data?.messages ?? NO_MESSAGES
   // Covers and authors for the "based on these books" cards (indexed books are already loaded for the picker).
-  const booksById = useMemo(() => new Map<string, IBook>((indexedBooks.data ?? []).map((book) => [book.id, book])), [indexedBooks.data])
+  const booksById = useMemo(() => new Map<string, IBook>((indexedBooks.books ?? []).map((book) => [book.id, book])), [indexedBooks.books])
 
   // Opening another conversation (or "New chat") leaves the previous live turn. It is only
   // disconnected: the server finishes and saves that answer, and re-opening re-attaches to it.
@@ -291,7 +291,7 @@ export function ChatView() {
               )}
 
               {empty && (
-                <ChatEmptyState bookTitles={(indexedBooks.data ?? []).map((book) => book.title)} onPick={(text) => setDraft({ text, key: Date.now() })} />
+                <ChatEmptyState bookTitles={(indexedBooks.books ?? []).map((book) => book.title)} onPick={(text) => setDraft({ text, key: Date.now() })} />
               )}
 
               {saved.map((message) =>
@@ -317,14 +317,11 @@ export function ChatView() {
         <div className="shrink-0 px-4 pt-2 pb-5 md:px-8">
           <div className="mx-auto w-full max-w-3xl">
             <ChatComposer
-              books={indexedBooks.data}
-              booksLoading={indexedBooks.isLoading}
-              booksError={indexedBooks.error}
               selectedIds={selectedIds}
               onSelectedIdsChange={setSelectedIds}
               isStreaming={isStreaming}
               sendBlocked={isStopping || preparingSend}
-              disabled={indexedBooks.data?.length === 0 || notFound}
+              disabled={indexedBooks.books?.length === 0 || notFound}
               onSend={(question) => void send(question)}
               onStop={stop}
               draft={draft}

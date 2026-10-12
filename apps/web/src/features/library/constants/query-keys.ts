@@ -4,6 +4,8 @@ import type { IBookListParams } from '@/features/library/types/book.types'
 export const BOOK_KEYS = {
   all: ['books'] as const,
   list: (params: IBookListParams) => ['books', params] as const,
+  /** Paged, indexed-only picker list (under `all`, so book mutations invalidate it). */
+  picker: (search: string) => ['books', 'picker', search] as const,
   detail: (id: string) => ['book', id] as const,
   lookup: (query: string) => ['book-lookup', query] as const,
 }

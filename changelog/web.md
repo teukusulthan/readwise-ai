@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Book picker scales past 100 books (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/web/src/features/library/components/BookSelector.tsx`, `src/features/library/hooks/useIndexedBooks.ts`, `src/features/library/hooks/useSelectedBooks.ts`, `src/features/library/constants/query-keys.ts`, `src/features/library/chat/components/{ChatComposer,ChatView}.tsx`, `src/features/library/search/components/SearchView.tsx`, tests `BookSelector.test.tsx`
+> The shared chat/search book picker no longer loads a fixed 100 books. It pages indexed books 50 at a time ("Load more books"), the "Find a book" box searches on the server (300 ms debounce, `search` param of `POST /book/get-all`), and "All N indexed books are searched" uses the backend `totalElements`. Picked books that are not on a loaded page (e.g. from a `?bookId=` link) stay visible, fetched by id. Pressing Enter in the filter no longer submits the search page's form. Picker queries live under `BOOK_KEYS.picker`, so book mutations and busy-to-indexed transitions still refresh them.
+
 ### 2026-10-12 · Semantic search page (no sprint) · ✅ Done
 
 **Event:** Files modified

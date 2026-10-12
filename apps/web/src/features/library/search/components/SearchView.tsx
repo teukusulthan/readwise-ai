@@ -37,7 +37,7 @@ export function SearchView() {
   const changeScope = (ids: string[]) => setSearchParams(buildSearchParams({ query, bookIds: ids }), { replace: true })
 
   const data = search.data
-  const titleOf = (id: string, title: string | null) => title ?? indexedBooks.data?.find((book) => book.id === id)?.title ?? 'Unknown book'
+  const titleOf = (id: string, title: string | null) => title ?? indexedBooks.books?.find((book) => book.id === id)?.title ?? 'Unknown book'
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
@@ -81,9 +81,6 @@ export function SearchView() {
           {scopeOpen && (
             <BookSelector
               title="Books to search"
-              books={indexedBooks.data}
-              isLoading={indexedBooks.isLoading}
-              error={indexedBooks.error}
               selectedIds={bookIds}
               onChange={changeScope}
             />

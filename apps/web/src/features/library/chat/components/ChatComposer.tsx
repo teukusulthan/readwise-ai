@@ -3,15 +3,12 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { Expand } from '@/components/ui/expand'
 import { Hint } from '@/components/ui/tooltip'
 import { askSchema } from '@/features/library/chat/schemas/ask.schema'
-import type { IBook } from '@/features/library/types/book.types'
+import { useSelectedBooks } from '@/features/library/hooks/useSelectedBooks'
 import { cn } from '@/utils/cn'
 import { renderIcon } from '@/utils/icon-renderer'
 import { BookSelector } from '@/features/library/components/BookSelector'
 
 interface ChatComposerProps {
-  books: IBook[] | undefined
-  booksLoading: boolean
-  booksError: Error | null
   selectedIds: string[]
   onSelectedIdsChange: (ids: string[]) => void
   isStreaming: boolean
@@ -28,9 +25,6 @@ const MAX_TEXTAREA_PX = 200
 
 /** Message box pinned under the thread. Enter sends, Shift+Enter adds a line. */
 export function ChatComposer({
-  books,
-  booksLoading,
-  booksError,
   selectedIds,
   onSelectedIdsChange,
   isStreaming,
@@ -43,6 +37,7 @@ export function ChatComposer({
   const [text, setText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [scopeOpen, setScopeOpen] = useState(false)
+  const picked = useSelectedBooks(selectedIds.slice(0, 1))
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useLayoutEffect(() => {
@@ -76,7 +71,7 @@ export function ChatComposer({
     selectedIds.length === 0
       ? 'All indexed books'
       : selectedIds.length === 1
-        ? (books?.find((book) => book.id === selectedIds[0])?.title ?? '1 book')
+        ? (picked[0]?.title ?? '1 book')
         : `${selectedIds.length} books`
 
   return (
@@ -90,7 +85,7 @@ export function ChatComposer({
       >
         <Expand open={scopeOpen}>
           <div className="border-b border-border-primary bg-background-page px-5 py-4">
-            <BookSelector books={books} isLoading={booksLoading} error={booksError} selectedIds={selectedIds} onChange={onSelectedIdsChange} />
+            <BookSelector selectedIds={selectedIds} onChange={onSelectedIdsChange} />
           </div>
         </Expand>
 

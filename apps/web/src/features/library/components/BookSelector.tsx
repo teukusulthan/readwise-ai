@@ -1,25 +1,27 @@
-import { useMemo, useState } from 'react'
+import { useState, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PerfectScrollArea } from '@/components/wrappers/PerfectScrollArea'
+import { useIndexedBooks } from '@/features/library/hooks/useIndexedBooks'
+import { useSelectedBooks } from '@/features/library/hooks/useSelectedBooks'
 import type { IBook } from '@/features/library/types/book.types'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { cn } from '@/utils/cn'
 import { renderIcon } from '@/utils/icon-renderer'
 
 interface BookSelectorProps {
-  books: IBook[] | undefined
-  isLoading: boolean
-  error: Error | null
   selectedIds: string[]
   onChange: (ids: string[]) => void
   /** Heading and group label; defaults to the chat's wording. */
   title?: string
 }
 
-/** Show the search box once the list is too long to scan at a glance. */
+/** Show the search box once the library is too long to scan at a glance. */
 const SEARCH_THRESHOLD = 8
+const SEARCH_DEBOUNCE_MS = 300
 
 const chipClass = (selected: boolean) =>
   cn(
@@ -30,19 +32,35 @@ const chipClass = (selected: boolean) =>
       : 'border-border-primary bg-background-primary text-font-secondary hover:border-border-secondary hover:text-font-primary',
   )
 
-/** Pick which indexed books to ask. An empty selection means “all indexed books”. */
-export function BookSelector({ books, isLoading, error, selectedIds, onChange, title = 'Books to ask' }: BookSelectorProps) {
+/**
+ * Pick which indexed books to ask. An empty selection means “all indexed books”.
+ * The list is paged and searched on the server, so it works for libraries of any size.
+ */
+export function BookSelector({ selectedIds, onChange, title = 'Books to ask' }: BookSelectorProps) {
   const [query, setQuery] = useState('')
+  const term = query.trim()
+  const debouncedTerm = useDebouncedValue(term, SEARCH_DEBOUNCE_MS)
+
+  // `library` (no search) gives the label's total; `results` is what the box currently matches.
+  const library = useIndexedBooks()
+  const results = useIndexedBooks(debouncedTerm)
+  const picked = useSelectedBooks(selectedIds, results.books)
+
   const toggle = (id: string) => onChange(selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id])
   const allSelected = selectedIds.length === 0
+  const total = library.total ?? 0
+  const searching = !!term
+  // Picked books stay on top even when they are not on a loaded page; while searching, only matches show.
+  const visible: IBook[] = searching
+    ? [...(results.books ?? []).filter((b) => selectedIds.includes(b.id)), ...(results.books ?? []).filter((b) => !selectedIds.includes(b.id))]
+    : [...picked, ...(library.books ?? []).filter((b) => !selectedIds.includes(b.id))]
+  const active = searching ? results : library
+  const settling = searching && (term !== debouncedTerm || results.isFetching)
 
-  // Selected books first, then the rest; both filtered by title or author.
-  const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    const matches = (book: IBook) => !needle || book.title.toLowerCase().includes(needle) || book.authors.some((a) => a.toLowerCase().includes(needle))
-    const list = (books ?? []).filter(matches)
-    return [...list.filter((b) => selectedIds.includes(b.id)), ...list.filter((b) => !selectedIds.includes(b.id))]
-  }, [books, query, selectedIds])
+  // Enter in the filter must not submit a surrounding form (e.g. the search page's).
+  const onFilterKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') event.preventDefault()
+  }
 
   return (
     <section className="flex flex-col gap-3" aria-labelledby="book-selector-title">
@@ -51,23 +69,23 @@ export function BookSelector({ books, isLoading, error, selectedIds, onChange, t
           {title}
         </h2>
         <p className="text-body-sm text-font-secondary">
-          {allSelected ? `All ${books?.length ?? 0} indexed books are searched` : `${selectedIds.length} of ${books?.length ?? 0} selected`}
+          {allSelected ? `All ${total} indexed books are searched` : `${selectedIds.length} of ${total} selected`}
         </p>
       </div>
 
-      {isLoading && (
+      {library.isLoading && (
         <div className="flex flex-wrap gap-2" aria-busy="true">
           <Skeleton className="h-10 w-36 rounded-full" />
           <Skeleton className="h-10 w-52 rounded-full" />
           <Skeleton className="h-10 w-44 rounded-full" />
         </div>
       )}
-      {error && (
+      {library.error && (
         <p role="alert" className="text-body-sm text-error-bold">
-          Could not load indexed books: {error.message}
+          Could not load indexed books: {library.error.message}
         </p>
       )}
-      {books?.length === 0 && (
+      {library.books?.length === 0 && (
         <p className="text-body-md text-font-secondary">
           No indexed books yet.{' '}
           <Link to="/books" className="font-medium text-primary underline-offset-4 hover:underline">
@@ -76,14 +94,18 @@ export function BookSelector({ books, isLoading, error, selectedIds, onChange, t
           to get started.
         </p>
       )}
-      {!!books?.length && (
+      {!!library.books?.length && (
         <>
-          {books.length > SEARCH_THRESHOLD && (
+          {(total > SEARCH_THRESHOLD || searching) && (
             <div className="relative">
-              {renderIcon({ icon: 'magnifying-glass', className: 'pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-[16px] text-font-placeholder' })}
+              {renderIcon({
+                icon: 'magnifying-glass',
+                className: 'pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-[16px] text-font-placeholder',
+              })}
               <Input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={onFilterKeyDown}
                 placeholder="Find a book by title or author"
                 aria-label="Find a book"
                 className="h-10 pl-10"
@@ -92,8 +114,8 @@ export function BookSelector({ books, isLoading, error, selectedIds, onChange, t
           )}
           <div className="relative">
             <PerfectScrollArea className="max-h-52" options={{ wheelPropagation: false }}>
-              <div className="flex flex-wrap gap-2 pr-3" role="group" aria-label={title}>
-                {!query.trim() && (
+              <div className="flex flex-wrap gap-2 pr-3" role="group" aria-label={title} aria-busy={settling}>
+                {!searching && (
                   <button type="button" aria-pressed={allSelected} className={chipClass(allSelected)} onClick={() => onChange([])}>
                     {renderIcon({ icon: 'books', className: 'text-[18px]' })}
                     All indexed books
@@ -118,8 +140,15 @@ export function BookSelector({ books, isLoading, error, selectedIds, onChange, t
                     </button>
                   )
                 })}
-                {visible.length === 0 && <p className="py-2 text-body-sm text-font-placeholder">No indexed book matches “{query.trim()}”.</p>}
+                {searching && !settling && visible.length === 0 && <p className="py-2 text-body-sm text-font-placeholder">No indexed book matches “{term}”.</p>}
               </div>
+              {active.hasNextPage && (
+                <div className="pt-2">
+                  <Button type="button" variant="outline" size="sm" disabled={active.isFetchingNextPage} onClick={() => void active.fetchNextPage()}>
+                    {active.isFetchingNextPage ? 'Loading…' : 'Load more books'}
+                  </Button>
+                </div>
+              )}
             </PerfectScrollArea>
           </div>
         </>
