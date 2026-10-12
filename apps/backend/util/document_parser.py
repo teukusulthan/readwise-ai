@@ -39,10 +39,13 @@ def _converter():
         do_table_structure=settings.DOCLING_DO_TABLE_STRUCTURE,
         generate_page_images=False,
         generate_picture_images=False,
+        layout_batch_size=settings.DOCLING_LAYOUT_BATCH_SIZE,
         accelerator_options=AcceleratorOptions(num_threads=settings.DOCLING_NUM_THREADS, device="cpu"),
     )
-    logger.info("Initialising Docling converter (ocr={ocr}, tables={tables}, threads={threads})",
-                ocr=options.do_ocr, tables=options.do_table_structure, threads=settings.DOCLING_NUM_THREADS)
+    logger.info("Initialising Docling converter (ocr={ocr}, tables={tables}, threads={threads}, "
+                "layout_batch={batch})",
+                ocr=options.do_ocr, tables=options.do_table_structure, threads=settings.DOCLING_NUM_THREADS,
+                batch=options.layout_batch_size)
     return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)})
 
 

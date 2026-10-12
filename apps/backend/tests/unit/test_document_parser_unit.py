@@ -50,3 +50,31 @@ def test_parse_pdf_counts_pages_before_any_conversion(monkeypatch):
     monkeypatch.setattr(parser, "convert", lambda *a, **k: (_ for _ in ()).throw(AssertionError("too early")))
     pages, chunks = parser.parse_pdf("book.pdf")
     assert pages == 7  # chunks are lazy: nothing parsed until the job iterates
+
+
+def test_converter_uses_configured_threads_and_layout_batch_size(monkeypatch):
+    from docling import document_converter
+
+    from config.base import settings
+    from util import document_parser
+
+    captured = {}
+    monkeypatch.setattr(document_converter, "DocumentConverter", lambda **kw: captured.update(kw) or object())
+    monkeypatch.setattr(settings, "DOCLING_NUM_THREADS", 6)
+    monkeypatch.setattr(settings, "DOCLING_LAYOUT_BATCH_SIZE", 2)
+    document_parser._converter.cache_clear()
+    try:
+        document_parser._converter()
+    finally:
+        document_parser._converter.cache_clear()
+
+    (fmt,) = captured["format_options"].values()
+    assert fmt.pipeline_options.layout_batch_size == 2
+    assert fmt.pipeline_options.accelerator_options.num_threads == 6
+
+
+def test_docling_speed_defaults():
+    from config.base import BaseSetting
+
+    assert BaseSetting.__fields__["DOCLING_NUM_THREADS"].default == 8
+    assert BaseSetting.__fields__["DOCLING_LAYOUT_BATCH_SIZE"].default == 1

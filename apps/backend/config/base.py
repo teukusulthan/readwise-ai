@@ -152,7 +152,10 @@ class BaseSetting(BaseSettings):
     # go reached 3.2 GB RSS). Page numbers stay absolute; headings carry over between windows.
     DOCLING_PAGE_WINDOW: int = Field(default=20)
     # CPU threads Docling may use (the rest of the machine stays responsive).
-    DOCLING_NUM_THREADS: int = Field(default=4)
+    DOCLING_NUM_THREADS: int = Field(default=8)
+    # Pages the layout model processes per batch. Measured fastest at 1 on an 8-core CPU (higher
+    # values use more RAM and were slower); output is identical.
+    DOCLING_LAYOUT_BATCH_SIZE: int = Field(default=1)
 
     # Retrieval
     RETRIEVAL_TOP_K: int = Field(default=8)

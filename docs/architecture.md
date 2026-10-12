@@ -235,6 +235,8 @@ Delete order: Qdrant points → PDF file → row (search never returns chunks of
 | Docling warm, 3-page PDF | ~14 s incl. model load; peak RAM ~1.5 GB |
 | 152-page book, whole PDF in one Docling pass | RSS reached 3.2 GB with swap full → stopped; led to windowed parsing |
 | Upload → indexed (API, background thread) | ~15 s for the sample book |
+| Docling layout model share of indexing time | ~91% |
+| Docling throughput, 8 threads + layout batch size 1 (defaults) | ~0.8 s/page, vs 1.2–1.4 s/page with 4 threads + batch 4; byte-identical chunks, lower peak RAM |
 | Retrieval scores (with query instruction) | relevant top hit 0.53–0.77; off-topic best 0.39 → threshold 0.45 |
 | Without query instruction | relevant 0.42–0.72 vs off-topic 0.34 → would miss answers at 0.45 (why the instruction is on) |
 

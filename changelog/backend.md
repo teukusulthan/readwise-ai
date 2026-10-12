@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Faster PDF indexing (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/config/base.py`, `apps/backend/util/document_parser.py`, `apps/backend/.env.example`, `apps/backend/tests/unit/test_document_parser_unit.py`, `docs/architecture.md`
+> Docling now defaults to 8 threads and layout batch size 1 (new `BE_DOCLING_LAYOUT_BATCH_SIZE`). Measured 30–45% faster (~0.8 s/page vs 1.2–1.4) with byte-identical chunks and lower peak RAM; chunking, OCR and table settings are unchanged.
+
 ### 2026-10-09 · Boilerplate hardening & stack migration (no sprint) · ✅ Done
 
 **Event:** Files modified
