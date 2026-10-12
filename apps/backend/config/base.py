@@ -187,6 +187,12 @@ class BaseSetting(BaseSettings):
     RETRIEVAL_TOP_K: int = Field(default=8)
     # Chunks scoring below this cosine similarity are treated as irrelevant.
     RETRIEVAL_MIN_SCORE: float = Field(default=0.45)
+    # Search fetches topK × this many candidates (same threshold), then keeps topK with at most
+    # RETRIEVAL_MAX_PER_SECTION passages per section (book + heading path): near-duplicate passages
+    # of one chapter otherwise take every slot and the chapter that answers is missed.
+    # RETRIEVAL_MAX_PER_SECTION=0 disables the cap (plain top-k).
+    RETRIEVAL_CANDIDATE_MULTIPLIER: int = Field(default=4)
+    RETRIEVAL_MAX_PER_SECTION: int = Field(default=2)
 
     # Answer policy. True (hybrid): books first and cited, plus the model's general knowledge in a separate,
     # labeled section — and a labeled general-knowledge answer when the books have nothing. False (strict):

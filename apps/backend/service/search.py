@@ -12,9 +12,15 @@ Three refinements on top of plain top-k search (see retrieve()):
 - per-book: comparison questions over a few books search each book separately, so every
   book is represented instead of the closest one taking all the slots;
 - follow-ups: the previous question is searched too and the results are merged.
+
+Each search fetches a larger candidate pool and keeps at most a few passages per section
+(select_diverse), so near-duplicate passages of one chapter can't crowd out the chapter that
+answers ("what does Scrooge learn from the Ghost of Christmas Yet to Come?" used to get eight
+passages from Staves 1-3 and none from Stave 4).
 """
 
 import math
+from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
 from typing import Optional
 
@@ -92,15 +98,12 @@ class Search:
 
             several = len(mentioned_indexed) >= 2 or (book_ids is not None and len(searchable) >= 2)
             if several and len(searchable) <= PER_BOOK_MAX_BOOKS:
+                # Diversified within each book, so every book keeps its share.
                 per_book = max(PER_BOOK_MIN_HITS, math.ceil(limit / len(searchable)))
-                hits = merge_hits([
-                    merge_hits([self.vector_store.search(v, book_ids=[b], limit=per_book, min_score=threshold)
-                                for v in vectors], per_book)
-                    for b in searchable
-                ], per_book * len(searchable))
+                hits = merge_hits([self._best_passages(vectors, [b], per_book, threshold) for b in searchable],
+                                  per_book * len(searchable))
             else:
-                hits = merge_hits([self.vector_store.search(v, book_ids=searchable, limit=limit, min_score=threshold)
-                                   for v in vectors], limit)
+                hits = self._best_passages(vectors, searchable, limit, threshold)
 
         hits = with_catalog_titles(hits, by_id)
         involved = list(dict.fromkeys(
@@ -108,6 +111,14 @@ class Search:
         ))
         books = [book_to_context(by_id[i]) for i in involved if i in by_id]
         return Retrieval(hits=hits, searched_book_ids=searchable, skipped=skipped, books=books)
+
+    def _best_passages(self, vectors: list[list[float]], book_ids: list[str], limit: int,
+                       threshold: float) -> list[ChunkHit]:
+        """Search every query vector for a candidate pool, merge, then pick `limit` across sections."""
+        pool = limit * max(1, settings.RETRIEVAL_CANDIDATE_MULTIPLIER)
+        candidates = merge_hits([self.vector_store.search(v, book_ids=book_ids, limit=pool, min_score=threshold)
+                                 for v in vectors], pool)
+        return select_diverse(candidates, limit, settings.RETRIEVAL_MAX_PER_SECTION)
 
     def query(self, dto: SearchQueryDTO) -> dict:
         result = self.retrieve(dto.query, dto.bookIds, dto.topK)
@@ -168,6 +179,30 @@ def merge_hits(results: list[list[ChunkHit]], limit: int) -> list[ChunkHit]:
             if key not in best or hit.score > best[key].score:
                 best[key] = hit
     return sorted(best.values(), key=lambda hit: hit.score, reverse=True)[:limit]
+
+
+def select_diverse(candidates: list[ChunkHit], limit: int, max_per_section: int) -> list[ChunkHit]:
+    """
+    The best `limit` candidates, taking at most `max_per_section` from any one section
+    (book + heading path); when the cap leaves fewer than `limit`, the best skipped candidates fill
+    the rest. Best first; equal scores keep the candidates' order. `max_per_section` <= 0: no cap.
+    """
+    ranked = sorted(candidates, key=lambda hit: hit.score, reverse=True)
+    if max_per_section <= 0:
+        return ranked[:limit]
+    taken: Counter = Counter()
+    chosen, skipped = [], []
+    for position, hit in enumerate(ranked):
+        if len(chosen) == limit:
+            break
+        section = (hit.book_id, tuple(hit.headings))
+        if taken[section] < max_per_section:
+            taken[section] += 1
+            chosen.append(position)
+        else:
+            skipped.append(position)
+    chosen += skipped[:limit - len(chosen)]
+    return [ranked[position] for position in sorted(chosen)]
 
 
 def hit_to_api(hit: ChunkHit) -> dict:

@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Retrieval keeps several sections in the top k (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/service/search.py`, `apps/backend/config/base.py`, `apps/backend/.env.example`, `apps/backend/scripts/eval_retrieval.py`, `apps/backend/tests/unit/test_search_diversity.py`, `docs/architecture.md`
+> Every search now fetches `topK × BE_RETRIEVAL_CANDIDATE_MULTIPLIER` (4) candidates with the same score threshold and keeps the best `topK` with at most `BE_RETRIEVAL_MAX_PER_SECTION` (2, 0 = off) per section `(book_id, heading path)`; when the cap leaves fewer than `topK`, the best skipped candidates fill the rest (`select_diverse`, pure). Applied to the single search, within each book of a 2–6-book comparison (every book stays represented) and after the follow-up merge. New `scripts/eval_retrieval.py` (uv script, read-only `POST /search/query` on the running backend, 7 Gutenberg cases): hit@8 5/7 → 6/7; the Scrooge / Ghost of Christmas Yet to Come question now finds Stave IV at rank 6, no case regressed.
+
 ### 2026-10-12 · Serve the stored PDF: `GET /book/file` (no sprint) · ✅ Done
 
 **Event:** Files modified

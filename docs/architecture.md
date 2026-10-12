@@ -125,11 +125,23 @@ POST /search/query {query, bookIds?, topK?}
     1. resolve books: only ingestion_status='indexed'; others reported in skippedBooks
     2. Services.embedding().embed_query(query)   (Qwen3 query instruction prepended)
     3. VectorStore.search: Qdrant cosine search, filter book_id ∈ indexed books,
-       score ≥ RETRIEVAL_MIN_SCORE (0.45), limit topK (6)
+       score ≥ RETRIEVAL_MIN_SCORE (0.45), limit topK (8) × RETRIEVAL_CANDIDATE_MULTIPLIER (4)
+    4. select_diverse: keep the best topK candidates with at most RETRIEVAL_MAX_PER_SECTION (2)
+       per section = (book_id, heading path); if the cap leaves fewer than topK, the best skipped
+       candidates fill the rest; best first. Applied per search scope: the whole selection, each
+       book of a 2–6-book comparison (so every book stays represented), and after merging the
+       follow-up query's candidates. RETRIEVAL_MAX_PER_SECTION=0 = plain top-k.
   → results [{bookTitle, headings, pageStart, pageEnd, text, score}]
      bookTitle (here, in prompts and in chat sources) comes from the books table, not the point
      payload (which keeps the title at indexing time), so a rename shows at once without re-indexing
 ```
+
+Why the section cap: a chapter is chunked into many similar passages, so a plain top-k often
+returns eight near-duplicates of the one or two closest chapters. "What does Scrooge learn from the
+Ghost of Christmas Yet to Come?" got passages from Staves 1–3 only; with the cap, Stave IV
+("The Last of the Spirits") is rank 6. Measure changes with `apps/backend/scripts/eval_retrieval.py`
+(question → expected book + heading over the seeded Gutenberg books, prints hit@k for the running
+backend): baseline 5/7, with the cap 6/7 at k = 8.
 
 ### 4.3 Answer (books first, general knowledge labeled)
 
