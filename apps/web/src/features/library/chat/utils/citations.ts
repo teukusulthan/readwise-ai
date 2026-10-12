@@ -1,52 +1,23 @@
-/** Pure helpers that turn plain-text answers into paragraphs, lists and citation segments. */
+/** Pure helpers for answers: citation segments and the general-knowledge split. */
 
 export type TAnswerSegment = { type: 'text'; text: string } | { type: 'cite'; n: number }
-
-export type TAnswerBlock = { type: 'p'; text: string } | { type: 'ul' | 'ol'; items: string[] }
 
 const CITATION_RE = /\[(\d{1,2})\]/g
 
 /**
- * Heading line that starts the part of an answer coming from the model's general knowledge
- * (backend: service/rag.py GENERAL_HEADING). Tolerates stray Markdown and a missing colon,
- * and also matches while the heading is still being streamed in full.
+ * The heading the model is told to put on its own line before the general-knowledge part
+ * (backend: service/rag.py GENERAL_HEADING, "GENERAL KNOWLEDGE:"). The line must hold nothing
+ * else, so a sentence that merely starts with "General knowledge of ..." is not mistaken for it.
+ * Tolerates case and Markdown decoration (`**General knowledge:**`, `## General knowledge:`).
+ * Matches as soon as the heading line is complete while streaming.
  */
-const GENERAL_HEADING_RE = /^[ \t>*_#-]*general knowledge\s*[:：]?[*_ \t]*/im
+const GENERAL_HEADING_RE = /^[ \t>#*_-]*general knowledge[ \t]*[*_]*[ \t]*[:：][*_ \t]*$/im
 
 /** `[bookPart, generalPart]`; `generalPart` is null when the answer has no general-knowledge section. */
 export function splitGeneralKnowledge(text: string): [string, string | null] {
   const match = GENERAL_HEADING_RE.exec(text)
   if (!match) return [text, null]
   return [text.slice(0, match.index), text.slice(match.index + match[0].length)]
-}
-
-/** Every line break starts a new paragraph (models separate paragraphs with one or two newlines). */
-export function splitParagraphs(text: string): string[] {
-  return text
-    .replace(/\r\n?/g, '\n')
-    .split(/\n+/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
-}
-
-const BULLET_RE = /^[-•*]\s+/
-const NUMBERED_RE = /^\d{1,2}[.)]\s+/
-
-/** Group consecutive "- item" / "1. item" lines into lists; everything else is a paragraph. */
-export function toBlocks(paragraphs: string[]): TAnswerBlock[] {
-  const blocks: TAnswerBlock[] = []
-  for (const paragraph of paragraphs) {
-    const listType = BULLET_RE.test(paragraph) ? 'ul' : NUMBERED_RE.test(paragraph) ? 'ol' : null
-    if (!listType) {
-      blocks.push({ type: 'p', text: paragraph })
-      continue
-    }
-    const item = paragraph.replace(listType === 'ul' ? BULLET_RE : NUMBERED_RE, '')
-    const previous = blocks[blocks.length - 1]
-    if (previous && previous.type === listType) previous.items.push(item)
-    else blocks.push({ type: listType, items: [item] })
-  }
-  return blocks
 }
 
 /**

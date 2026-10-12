@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { segmentCitations, splitGeneralKnowledge, splitParagraphs, toBlocks } from './citations'
-
-describe('splitParagraphs', () => {
-  it('treats every line break as a paragraph break', () => {
-    expect(splitParagraphs('One.\nTwo.\n\n\nThree.\r\n\r\nFour.\n  \n')).toEqual(['One.', 'Two.', 'Three.', 'Four.'])
-  })
-})
+import { segmentCitations, splitGeneralKnowledge } from './citations'
 
 describe('segmentCitations', () => {
   it('turns known [n] markers into citation segments', () => {
@@ -28,23 +22,21 @@ describe('splitGeneralKnowledge', () => {
     expect(splitGeneralKnowledge('Book fact [1].\n\nGENERAL KNOWLEDGE:\n\nOutside fact.')).toEqual(['Book fact [1].\n\n', '\n\nOutside fact.'])
   })
 
-  it('tolerates Markdown, lower case and text on the heading line', () => {
-    expect(splitGeneralKnowledge('A [1].\n**General knowledge:** Clear wrote it.')[1]).toBe('Clear wrote it.')
+  it('tolerates Markdown decoration and lower case around the heading line', () => {
+    expect(splitGeneralKnowledge('A [1].\n**General knowledge:**\nClear wrote it.')[1]).toBe('\nClear wrote it.')
+    expect(splitGeneralKnowledge('A [1].\n## general knowledge:\nClear wrote it.')[1]).toBe('\nClear wrote it.')
+    expect(splitGeneralKnowledge('A [1].\n**General knowledge**:\nClear wrote it.')[1]).toBe('\nClear wrote it.')
+  })
+
+  it('does not split on ordinary sentences that merely start with the words', () => {
+    expect(splitGeneralKnowledge('General knowledge of history helps. It is [1].')).toEqual(['General knowledge of history helps. It is [1].', null])
+    expect(splitGeneralKnowledge('A [1].\n\nGeneral knowledge of the era says more.')[1]).toBeNull()
+    expect(splitGeneralKnowledge('A [1].\nGeneral knowledge: Clear wrote it.')[1]).toBeNull()
+    expect(splitGeneralKnowledge('A [1].\nGeneral knowledge\nbut no colon.')[1]).toBeNull()
   })
 
   it('returns null when there is no section, and an empty book part for general-only answers', () => {
     expect(splitGeneralKnowledge('Only books [2].')).toEqual(['Only books [2].', null])
     expect(splitGeneralKnowledge('GENERAL KNOWLEDGE:\nYour books do not cover this.')).toEqual(['', '\nYour books do not cover this.'])
-  })
-})
-
-describe('toBlocks', () => {
-  it('groups bullet and numbered lines into lists', () => {
-    expect(toBlocks(['Intro.', '- one [1]', '- two', '1. first', '2) second', 'Outro.'])).toEqual([
-      { type: 'p', text: 'Intro.' },
-      { type: 'ul', items: ['one [1]', 'two'] },
-      { type: 'ol', items: ['first', 'second'] },
-      { type: 'p', text: 'Outro.' },
-    ])
   })
 })

@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Render answers as safe Markdown, announce completion, tighten "general knowledge" (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/web/package.json`, `apps/web/package-lock.json`, `apps/web/src/features/library/chat/components/{AnswerMarkdown,AnswerText,AssistantMessage,ChatView}.tsx`, `.../chat/utils/citations.ts`, tests `AnswerText.test.tsx`, `ChatView.test.tsx`, `citations.test.ts`, `docs/architecture.md`
+> Answers render through `react-markdown` + `remark-gfm` (headings, lists, tables, code, links; no raw HTML, images as alt text, links `target=_blank rel="noopener noreferrer"`, `javascript:` blocked) with the `[n]` chips kept inside paragraphs, list items, table cells and emphasis. A polite hidden status region says "Answer ready" / "Answer stopped" / "Answer failed: ..." once per turn, and the streaming article is no longer a live region (it would be read token by token). The general-knowledge box now needs the heading alone on its line (`GENERAL KNOWLEDGE:`), so "General knowledge of ..." sentences stay in the answer. Removed the unused plain-text list parser. AskPage chunk 46.5 kB -> 208.1 kB (gzip 14.8 -> 63.6 kB), lazy-loaded.
+
 ### 2026-10-12 · Patch dependencies, drop unused libraries and dead boilerplate files (no sprint) · ✅ Done
 
 **Event:** Files modified

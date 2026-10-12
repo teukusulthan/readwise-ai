@@ -65,7 +65,7 @@ export function AssistantMessage({ message, phase = 'done', animate = false, boo
   }
 
   return (
-    <article className={cn('flex gap-4', animate && 'animate-message-in')} aria-busy={streaming} aria-live={streaming ? 'polite' : undefined} data-testid="assistant-message">
+    <article className={cn('flex gap-4', animate && 'animate-message-in')} aria-busy={streaming} data-testid="assistant-message">
       <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-font-on-accent shadow-sm" aria-hidden="true">
         {renderIcon({ icon: 'book-open-text', className: 'text-[18px]' })}
       </span>

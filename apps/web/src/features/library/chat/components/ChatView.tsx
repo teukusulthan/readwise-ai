@@ -174,6 +174,18 @@ export function ChatView() {
     error: state.error,
   }
 
+  // One short spoken message per turn. The streaming text itself is not a live region (it would
+  // be read token by token); this region only changes when the turn ends.
+  const announcement = revealing
+    ? ''
+    : state.phase === 'done'
+      ? 'Answer ready'
+      : state.phase === 'stopped'
+        ? 'Answer stopped'
+        : state.phase === 'error'
+          ? `Answer failed${state.error ? `: ${state.error}` : ''}`
+          : ''
+
   // The refetched conversation replaces the live bubble, so wait until its text is fully shown.
   useEffect(() => {
     if (!settled || revealing) return
@@ -256,6 +268,10 @@ export function ChatView() {
             </Button>
           )}
         </header>
+
+        <p role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="answer-announcement">
+          {announcement}
+        </p>
 
         <div className="relative min-h-0 flex-1">
           <PerfectScrollArea ref={scrollRef} className="h-full" options={{ wheelPropagation: false }}>

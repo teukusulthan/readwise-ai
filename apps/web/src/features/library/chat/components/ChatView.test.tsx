@@ -219,3 +219,46 @@ describe('ChatView — Stop, then ask again', PAGE_TEST, () => {
     expect(screen.getByText('Partial')).toBeInTheDocument()
   })
 })
+
+describe('ChatView — completion announcement', PAGE_TEST, () => {
+  const announcement = () => screen.getByTestId('answer-announcement')
+
+  async function startTurn() {
+    renderChat('/ask/a')
+    await sidebarLists('a')
+    const stream = await askAndGetStream('First question')
+    stream.emit({ type: 'session', sessionId: 's1' }, '1-0')
+    stream.emit({ type: 'conversation', conversation: conversation('a', 'Alpha') }, '2-0')
+    return stream
+  }
+
+  it('stays silent while the answer streams, then says "Answer ready" once; the streaming text is not a live region', async () => {
+    const stream = await startTurn()
+    stream.emit({ type: 'delta', text: 'Partial' }, '3-0')
+    await screen.findByText('Partial')
+    expect(announcement()).toHaveTextContent('')
+    expect(announcement()).toHaveAttribute('aria-live', 'polite')
+    expect(screen.getByTestId('assistant-message')).not.toHaveAttribute('aria-live')
+
+    stream.emit(
+      { type: 'done', answer: { question: 'First question', answer: 'Partial answer.', grounded: true, mode: 'llm', model: 'm', sources: [], skippedBooks: [] } },
+      '4-0',
+    )
+    await waitFor(() => expect(announcement()).toHaveTextContent('Answer ready'))
+  })
+
+  it('says "Answer stopped" when the turn is stopped', async () => {
+    const stream = await startTurn()
+    stream.emit({ type: 'delta', text: 'Partial' }, '3-0')
+    await screen.findByText('Partial')
+    fireEvent.click(screen.getByLabelText('Stop the answer'))
+    stream.emit({ type: 'cancelled', message: 'The answer was stopped.' }, '4-0')
+    await waitFor(() => expect(announcement()).toHaveTextContent('Answer stopped'))
+  })
+
+  it('announces a failed answer with its message', async () => {
+    const stream = await startTurn()
+    stream.emit({ type: 'error', error: { message: 'The model is unavailable.' } } as never, '3-0')
+    await waitFor(() => expect(announcement()).toHaveTextContent('Answer failed: The model is unavailable.'))
+  })
+})
