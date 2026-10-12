@@ -6,10 +6,12 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { useBatchUpload } from '@/features/library/books/hooks/useBatchUpload'
 import { useUploadBook } from '@/features/library/books/hooks/useUploadBook'
 import { uploadSchema, type TUploadFormValues } from '@/features/library/books/schemas/upload.schema'
 import { MAX_UPLOAD_MB } from '@/features/library/constants/catalog'
 import type { IBook } from '@/features/library/types/book.types'
+import { BatchUploadPanel } from './BatchUploadPanel'
 import { renderIcon } from '@/utils/icon-renderer'
 
 interface UploadBookDialogProps {
@@ -21,7 +23,9 @@ interface UploadBookDialogProps {
 
 export function UploadBookDialog({ bookId, triggerLabel = 'Upload PDF', onUploaded }: UploadBookDialogProps) {
   const [open, setOpen] = useState(false)
+  const [confirmClose, setConfirmClose] = useState(false)
   const upload = useUploadBook()
+  const batch = useBatchUpload()
   const form = useForm<TUploadFormValues>({
     resolver: zodResolver(uploadSchema),
     defaultValues: { file: undefined, title: '' },
@@ -41,11 +45,34 @@ export function UploadBookDialog({ bookId, triggerLabel = 'Upload PDF', onUpload
     )
   }
 
+  const closeBatch = () => {
+    setConfirmClose(false)
+    batch.stop()
+    setOpen(false)
+    batch.reset() // a new batch starts clean; an in-flight file still finishes in the background
+  }
+
+  const startBatch = async () => {
+    const single = batch.rows.length === 1
+    await batch.start()
+    // Preserve the single-file flow: close and hand the new book to the caller.
+    const done = batch.getRows()
+    if (single && done[0]?.book) {
+      batch.reset()
+      setOpen(false)
+      onUploaded?.(done[0].book)
+    }
+  }
+
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!upload.isPending) setOpen(next)
+        if (next) return setOpen(true)
+        if (bookId) {
+          if (!upload.isPending) setOpen(false)
+        } else if (batch.running) setConfirmClose(true)
+        else closeBatch()
       }}
     >
       <DialogTrigger asChild>
@@ -56,12 +83,40 @@ export function UploadBookDialog({ bookId, triggerLabel = 'Upload PDF', onUpload
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{bookId ? 'Upload the book PDF' : 'Upload a PDF book'}</DialogTitle>
+          <DialogTitle>{bookId ? 'Upload the book PDF' : 'Upload PDF books'}</DialogTitle>
           <DialogDescription>
             Only upload documents you are allowed to use. Text-based PDFs up to {MAX_UPLOAD_MB} MB; scanned pages without a text layer can&apos;t be indexed.
           </DialogDescription>
         </DialogHeader>
-        <Form {...form}>
+        {!bookId && (
+          <>
+            <BatchUploadPanel
+              rows={batch.rows}
+              running={batch.running}
+              onAddFiles={batch.addFiles}
+              onTitleChange={batch.setTitle}
+              onRemove={batch.removeRow}
+              onStart={startBatch}
+              onClose={() => (batch.running ? setConfirmClose(true) : closeBatch())}
+            />
+            {confirmClose && (
+              <div role="alertdialog" aria-label="Stop uploading?" className="space-y-2 rounded-md border border-border-primary p-3">
+                <p className="text-body-sm">
+                  Uploads are still running. The file being sent will finish, but the files still waiting will not be uploaded. Close anyway?
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" size="xs" onClick={() => setConfirmClose(false)}>
+                    Keep uploading
+                  </Button>
+                  <Button type="button" size="xs" onClick={closeBatch}>
+                    Stop and close
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+        {bookId && <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-1 gap-4">
             <FormField
               control={form.control}
@@ -114,7 +169,7 @@ export function UploadBookDialog({ bookId, triggerLabel = 'Upload PDF', onUpload
               </Button>
             </DialogFooter>
           </form>
-        </Form>
+        </Form>}
       </DialogContent>
     </Dialog>
   )

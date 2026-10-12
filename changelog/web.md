@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Upload several PDFs at once (no sprint) · ✅ Done
+
+**Event:** Task completed
+**Files:** `apps/web/src/features/library/books/hooks/useBatchUpload.ts`, `apps/web/src/features/library/components/BatchUploadPanel.tsx`, `apps/web/src/features/library/components/UploadBookDialog.tsx`
+> The upload dialog accepts several PDFs (picker or drag-and-drop), one editable-title row each; files upload sequentially with pending / uploading / queued for indexing / error status (409 duplicate message shown per row, finished rows never retried). Closing mid-batch asks for confirmation. Attaching a PDF to an existing book (`bookId`) is unchanged.
+
 ### 2026-10-12 · Edit book details (no sprint) · ✅ Done
 
 **Event:** Task completed
