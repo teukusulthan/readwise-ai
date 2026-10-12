@@ -126,6 +126,46 @@ def test_parse_pdf_passes_the_ocr_flag_to_every_window(monkeypatch):
     assert flags == [True, True, False, False]
 
 
+def _probe_with(monkeypatch, settings, ocr_model=None, fail=False):
+    """Run ocr_available() against a fake OCR converter whose pipeline holds `ocr_model`."""
+    from types import SimpleNamespace
+
+    import util.document_parser as parser
+
+    def initialize_pipeline(fmt):
+        if fail:
+            raise RuntimeError("model download failed")
+        converter.initialized_pipelines["pdf"] = SimpleNamespace(ocr_model=ocr_model)
+
+    converter = SimpleNamespace(initialized_pipelines={}, initialize_pipeline=initialize_pipeline)
+    monkeypatch.setattr(settings, "DOCLING_DO_OCR", False)
+    monkeypatch.setattr(parser, "_ocr_converter", lambda: converter)
+    monkeypatch.setattr(parser, "_converter", lambda: (_ for _ in ()).throw(AssertionError("wrong converter")))
+    parser.ocr_available.cache_clear()
+    try:
+        return parser.ocr_available(), parser.ocr_available()
+    finally:
+        parser.ocr_available.cache_clear()
+
+
+def test_ocr_probe_reports_an_engine_the_auto_model_picked(monkeypatch, settings):
+    from types import SimpleNamespace
+
+    assert _probe_with(monkeypatch, settings, SimpleNamespace(_engine=object())) == (True, True)
+
+
+def test_ocr_probe_reports_no_engine_when_docling_found_none(monkeypatch, settings):
+    from types import SimpleNamespace
+
+    assert _probe_with(monkeypatch, settings, SimpleNamespace(_engine=None)) == (False, False)
+
+
+def test_ocr_probe_treats_build_errors_as_unavailable(monkeypatch, settings):
+    from types import SimpleNamespace
+
+    assert _probe_with(monkeypatch, settings, SimpleNamespace(_engine=object()), fail=True) == (False, False)
+
+
 def test_self_healing_defaults():
     from config.base import BaseSetting
 

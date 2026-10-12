@@ -11,7 +11,7 @@ re-queued while it has fewer than INGESTION_MAX_ATTEMPTS attempts, else marked f
 (retry with reindex, which resets the count). This assumes one API process owns the queue.
 
 Scanned PDFs: a parse with OCR off that yields no text is retried once with OCR on
-(DOCLING_OCR_FALLBACK).
+(DOCLING_OCR_FALLBACK), if Docling has a usable OCR engine (probed once per process).
 
 Retry safety:
 - the status claim is an atomic UPDATE ... WHERE status = 'queued', so a job runs once;
@@ -37,6 +37,22 @@ Parser = Callable[..., tuple[Optional[int], Iterable[dict]]]
 
 NO_TEXT_MESSAGE = "No text could be extracted. The PDF may be scanned images (OCR is disabled) or empty."
 NO_TEXT_WITH_OCR_MESSAGE = "No text could be extracted, even with OCR. The PDF may be empty or unreadable."
+NO_OCR_ENGINE_WARNING = "OCR fallback enabled but no OCR engine is available; skipping"
+
+
+class _NoOcrWarning:
+    """The missing-engine warning is logged once per process, not once per scanned book."""
+
+    logged = False
+    _lock = threading.Lock()
+
+    @classmethod
+    def log_once(cls):
+        with cls._lock:
+            if cls.logged:
+                return
+            cls.logged = True
+        logger.warning(NO_OCR_ENGINE_WARNING)
 
 
 class UserFacingError(Exception):
@@ -70,11 +86,13 @@ class _Workers:
 
 class Ingestion:
     def __init__(self, repository: Optional[BookRepository] = None, vector_store: Optional[VectorStore] = None,
-                 embedder=None, parser: Optional[Parser] = None, run_inline: bool = False):
+                 embedder=None, parser: Optional[Parser] = None, run_inline: bool = False,
+                 ocr_available: Optional[Callable[[], bool]] = None):
         self.repository = repository or BookRepository()
         self.vector_store = vector_store or VectorStore()
         self._embedder = embedder
         self._parser = parser
+        self._ocr_available = ocr_available
         self.run_inline = run_inline  # tests: run synchronously instead of in the thread pool
 
     @property
@@ -89,6 +107,14 @@ class Ingestion:
 
             self._parser = parse_pdf
         return self._parser
+
+    @property
+    def ocr_available(self) -> Callable[[], bool]:
+        if self._ocr_available is None:
+            from util.document_parser import ocr_available
+
+            self._ocr_available = ocr_available
+        return self._ocr_available
 
     def enqueue(self, book_id):
         if self.run_inline:
@@ -153,20 +179,27 @@ class Ingestion:
         self.vector_store.ensure_collection()
 
         page_count, total = self._parse_and_store(book, self.parser(book["file_path"]))
-        ocr_used = settings.DOCLING_DO_OCR  # every parse already runs OCR: no fallback then
+        ocr_ran = False  # did a parse that found no text really run OCR? (picks the failure message)
         if total:
-            logger.info("Book {id}: parsed {how}", id=book["id"], how="with OCR" if ocr_used else "without OCR")
-        elif settings.DOCLING_OCR_FALLBACK and not ocr_used:
-            logger.info("Book {id}: no text without OCR, retrying with OCR", id=book["id"])
-            ocr_used = True
-            page_count, total = self._parse_and_store(book, self.parser(book["file_path"], ocr=True))
-            if total:
-                logger.info("Book {id}: parsed with OCR", id=book["id"])
+            logger.info("Book {id}: parsed {how}", id=book["id"],
+                        how="with OCR" if settings.DOCLING_DO_OCR else "without OCR")
+        elif settings.DOCLING_DO_OCR:
+            ocr_ran = self.ocr_available()  # every parse already uses OCR, if an engine exists: no fallback
+        elif settings.DOCLING_OCR_FALLBACK:
+            if self.ocr_available():
+                logger.info("Book {id}: no text without OCR, retrying with OCR", id=book["id"])
+                ocr_ran = True
+                page_count, total = self._parse_and_store(book, self.parser(book["file_path"], ocr=True))
+                if total:
+                    logger.info("Book {id}: parsed with OCR", id=book["id"])
+                else:
+                    logger.warning("Book {id}: OCR also found no text", id=book["id"])
             else:
-                logger.warning("Book {id}: OCR also found no text", id=book["id"])
+                _NoOcrWarning.log_once()
+                logger.info("Book {id}: no text without OCR; no OCR engine, not retrying", id=book["id"])
 
         if total == 0:
-            raise UserFacingError(NO_TEXT_WITH_OCR_MESSAGE if ocr_used else NO_TEXT_MESSAGE)
+            raise UserFacingError(NO_TEXT_WITH_OCR_MESSAGE if ocr_ran else NO_TEXT_MESSAGE)
         self.vector_store.delete_stale_chunks(book["id"], keep_below=total)
         return page_count, total
 

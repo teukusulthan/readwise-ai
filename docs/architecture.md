@@ -80,9 +80,13 @@ POST /book/upload  (multipart: file, optional bookId | title)
           → one DoclingDocument per window (absolute page numbers; heading carried across window boundaries)
           HybridChunker(tokenizer = Qwen3 tokenizer, max 512 tokens, merge_peers)
           → chunks: text, embed_text (headings + text), headings, page_start, page_end
-          zero chunks (scanned PDF) and BE_DOCLING_OCR_FALLBACK=true → parse once more with a second,
-          separately cached converter with OCR on (same threads / layout batch); still nothing →
-          failed "No text could be extracted, even with OCR. …". Logs say which path ran.
+          zero chunks (scanned PDF) and BE_DOCLING_OCR_FALLBACK=true → if Docling has a usable OCR engine
+          (util/document_parser.ocr_available: probed once per process by building the OCR pipeline),
+          parse once more with a second, separately cached converter with OCR on (same threads / layout
+          batch); still nothing → failed "No text could be extracted, even with OCR. …". No engine → no
+          OCR pass, one warning per process ("OCR fallback enabled but no OCR engine is available;
+          skipping") and the original "No text could be extracted. … (OCR is disabled) …" message.
+          Logs say which path ran.
      8. for each batch of 32 chunks: Services.embedding().embed_documents(embed_text)
                                      VectorStore.upsert_chunks  (point id = uuid5(book_id, chunk_index))
      9. delete leftover points with chunk_index ≥ new count (re-index that produced fewer chunks)
@@ -296,7 +300,7 @@ deleted book's points are never returned; the worker drops points of a book dele
 - Rate limits and caps (see `docs/api-spec.md` § Rate limits): per-route fixed-window budgets live in `middleware/route_limits.py` (Redis, per user else per IP via `util/client_ip.py`; `X-Forwarded-For` only from `BE_TRUSTED_PROXIES`). The ingestion queue cap counts `queued` books in Postgres (`BookRepository.count_queued`), so it holds across processes; the chat cap counts running sessions with a fresh heartbeat in the Redis ZSET `chat:sessions:running`, checked in `ChatSessions.claim` and released with the conversation claim. Both caps are soft (check-then-insert) and can overshoot by a few under a simultaneous burst.
 - Agno returns provider errors as a normal result with `status=ERROR`; `service/llm.py` converts that into a 503 with a short message (bad key / rate limit / unknown model) and logs the details.
 - **Cross-language questions are weak**: an Indonesian question about an English book ranked the wrong chapter first.
-- **Scanned PDFs** are parsed twice: first with OCR off (fast), then — only when that yields no text — once more with OCR on (`BE_DOCLING_OCR_FALLBACK`, default true). OCR is much slower; if it also finds nothing the book fails with "No text could be extracted, even with OCR. …". `BE_DOCLING_DO_OCR=true` turns OCR on for every book (no fallback). **The OCR pass needs a working Docling OCR engine:** with the current lock (docling 2.129.0 + rapidocr 3.10.0, which no longer exposes `PP_OCRV6_LANGS`) Docling logs "No OCR engine found" and the OCR pass extracts nothing. rapidocr 3.9.x works with docling, but resolving it upgrades numpy/pandas/opencv, so that pin is a separate dependency decision.
+- **Scanned PDFs** are parsed twice: first with OCR off (fast), then — only when that yields no text — once more with OCR on (`BE_DOCLING_OCR_FALLBACK`, default true). OCR is much slower; if it also finds nothing the book fails with "No text could be extracted, even with OCR. …". `BE_DOCLING_DO_OCR=true` turns OCR on for every book (no fallback). **The OCR pass needs a working Docling OCR engine:** with the current lock (docling 2.129.0 + rapidocr 3.10.0, which no longer exposes `PP_OCRV6_LANGS`) Docling finds no engine, so the startup-cached probe reports "no OCR engine", the OCR pass is skipped and scanned PDFs still fail with the original message. rapidocr 3.9.x works with docling, but resolving it upgrades numpy/pandas/opencv, so that pin is a separate dependency decision. A failed probe (e.g. an OCR model download error) is cached too: restart to probe again.
 - **No login page**: local `.env` runs with `BE_JWT_ACTIVE=false`. The book endpoints use the standard JWT dependency, so enabling it protects them once a login UI exists.
 - **One shared library** — no per-user ownership.
 - 🛠 Not yet: MCP server, Docker images for the apps, S3 storage.

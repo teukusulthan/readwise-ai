@@ -3,7 +3,8 @@ import uuid
 import pytest
 from qdrant_client import QdrantClient
 
-from service.ingestion import NO_TEXT_MESSAGE, NO_TEXT_WITH_OCR_MESSAGE, Ingestion
+import service.ingestion as ingestion_module
+from service.ingestion import NO_OCR_ENGINE_WARNING, NO_TEXT_MESSAGE, NO_TEXT_WITH_OCR_MESSAGE, Ingestion
 from service.book_repository import INTERRUPTED_MESSAGE
 from service.vector_store import VectorStore
 
@@ -77,9 +78,9 @@ def store():
     return VectorStore(client=QdrantClient(":memory:"), collection="ingest_test", dimensions=DIM)
 
 
-def _ingestion(book, store, parser, embedder=None):
+def _ingestion(book, store, parser, embedder=None, ocr_available=True):
     return Ingestion(repository=FakeRepository(book), vector_store=store, embedder=embedder or FakeEmbedder(),
-                     parser=parser, run_inline=True)
+                     parser=parser, run_inline=True, ocr_available=lambda: ocr_available)
 
 
 def test_indexes_in_embedding_batches_and_records_result(store, settings, monkeypatch):
@@ -319,3 +320,30 @@ def test_no_ocr_retry_when_fallback_disabled_or_ocr_already_on(store, settings, 
     book, parser = _book(), FakeParser([], _chunks(3))
     _ingestion(book, store, parser).enqueue(book["id"])
     assert parser.calls == [False] and book["ingestion_error"] == NO_TEXT_WITH_OCR_MESSAGE
+
+
+def test_without_an_ocr_engine_the_ocr_pass_is_skipped_and_warned_once(store, caplog_loguru, monkeypatch):
+    monkeypatch.setattr(ingestion_module._NoOcrWarning, "logged", False)
+    for _ in range(2):  # two scanned books: one warning
+        book, parser = _book(), FakeParser([], _chunks(3))
+        _ingestion(book, store, parser, ocr_available=False).enqueue(book["id"])
+        assert parser.calls == [False]
+        assert book["ingestion_status"] == "failed" and book["ingestion_error"] == NO_TEXT_MESSAGE
+    assert caplog_loguru.count(NO_OCR_ENGINE_WARNING) == 1
+
+
+def test_ocr_always_on_without_an_engine_keeps_the_original_message(store, settings, monkeypatch):
+    monkeypatch.setattr(settings, "DOCLING_DO_OCR", True)
+    book, parser = _book(), FakeParser([], _chunks(3))
+    _ingestion(book, store, parser, ocr_available=False).enqueue(book["id"])
+    assert parser.calls == [False] and book["ingestion_error"] == NO_TEXT_MESSAGE
+
+
+def test_the_engine_probe_is_not_consulted_for_text_pdfs(store):
+    def probe():
+        raise AssertionError("probed although the PDF had text")
+
+    book = _book()
+    Ingestion(repository=FakeRepository(book), vector_store=store, embedder=FakeEmbedder(),
+              parser=FakeParser(_chunks(2), []), run_inline=True, ocr_available=probe).enqueue(book["id"])
+    assert book["ingestion_status"] == "indexed"

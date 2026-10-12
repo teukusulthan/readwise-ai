@@ -75,16 +75,19 @@ def test_recovery_orders_the_interrupted_job_first():
 
 
 def test_reindex_resets_attempts(tmp_path):
-    class Enqueued(list):
-        def enqueue(self, book_id):
-            self.append(book_id)
+    class RecordingIngestion:  # not a list subclass: an empty list is falsy and Book() would replace it
+        def __init__(self):
+            self.queued = []
 
-    repo, queued = BookRepository(), Enqueued()
+        def enqueue(self, book_id):
+            self.queued.append(book_id)
+
+    repo, ingestion = BookRepository(), RecordingIngestion()
     pdf = tmp_path / "retry.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
     book_id = _book(repo, "retry", "failed", 3)
     repo.update(book_id, {"file_path": str(pdf), "file_sha256": "f" * 64})
 
-    result = Book(repository=repo, ingestion=queued).reindex(str(book_id))
+    result = Book(repository=repo, ingestion=ingestion).reindex(str(book_id))
     assert result["ingestion"]["status"] == "queued" and result["ingestion"]["attempts"] == 0
-    assert repo.get(book_id)["ingestion_attempts"] == 0 and queued == [book_id]
+    assert repo.get(book_id)["ingestion_attempts"] == 0 and ingestion.queued == [book_id]

@@ -39,6 +39,33 @@ def _ocr_converter():
     return _build_converter(do_ocr=True)
 
 
+@lru_cache(maxsize=1)
+def ocr_available() -> bool:
+    """
+    Whether Docling has a usable OCR engine, probed once per process (the answer is cached).
+
+    Docling's automatic engine choice does not fail when no engine can be loaded: it logs
+    "No OCR engine found" and converts without OCR. So the OCR converter's pipeline is built
+    here (it is reused for the OCR pass) and its OCR model inspected: the auto model keeps the
+    engine it picked in `_engine` (None = nothing usable); an explicitly chosen engine is the
+    model itself. Any error while building it counts as "not available".
+    """
+    from docling.datamodel.base_models import InputFormat
+
+    try:
+        with _converter_lock:
+            converter = _converter() if settings.DOCLING_DO_OCR else _ocr_converter()
+            converter.initialize_pipeline(InputFormat.PDF)
+            pipelines = list(converter.initialized_pipelines.values())
+    except Exception:
+        logger.exception("Could not build the Docling OCR pipeline")
+        return False
+    models = [p.ocr_model for p in pipelines if getattr(p, "ocr_model", None) is not None]
+    available = bool(models) and all(getattr(m, "_engine", m) is not None for m in models)
+    logger.info("Docling OCR engine available: {available}", available=available)
+    return available
+
+
 def _build_converter(do_ocr: bool):
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import AcceleratorOptions, PdfPipelineOptions
