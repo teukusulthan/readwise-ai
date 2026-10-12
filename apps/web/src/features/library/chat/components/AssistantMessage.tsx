@@ -12,6 +12,7 @@ import { splitGeneralKnowledge } from '@/features/library/chat/utils/citations'
 import { describeSkipReason } from '@/features/library/utils/format'
 import { cn } from '@/utils/cn'
 import { renderIcon } from '@/utils/icon-renderer'
+import { AnswerProgress } from './AnswerProgress'
 import { AnswerText } from './AnswerText'
 import { CitedBooks } from './CitedBooks'
 import { SourceList } from './SourceList'
@@ -36,11 +37,6 @@ interface AssistantMessageProps {
   animate?: boolean
   /** Catalog by book id: enables the cover cards of the books the answer cites. */
   booksById?: ReadonlyMap<string, IBook>
-}
-
-const PHASE_LABEL: Partial<Record<TAskPhase, string>> = {
-  retrieving: 'Searching the indexed books…',
-  generating: 'Reading the passages and writing an answer…',
 }
 
 function resolveBanner(mode: TMessageMode | null, grounded: boolean, content: string): IAnswerModeMeta | null {
@@ -103,14 +99,7 @@ export function AssistantMessage({ message, phase = 'done', animate = false, boo
         )}
 
         {streaming && !message.content ? (
-          <div className="flex h-9 items-center gap-3 text-body-md text-font-secondary" data-testid="answer-progress">
-            <span className="flex gap-1" aria-hidden="true">
-              <span className="size-2 animate-typing rounded-full bg-primary" />
-              <span className="size-2 animate-typing rounded-full bg-primary [animation-delay:160ms]" />
-              <span className="size-2 animate-typing rounded-full bg-primary [animation-delay:320ms]" />
-            </span>
-            {PHASE_LABEL[phase]}
-          </div>
+          <AnswerProgress phase={phase} sourceCount={message.sources.length} />
         ) : (
           message.content && (
             <AnswerText text={message.content} sourceNumbers={sourceNumbers} activeSource={activeSource} streaming={streaming} onCite={cite} />

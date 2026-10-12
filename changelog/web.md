@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Visible progress while the model thinks (no sprint) · ✅ Done
+
+**Event:** Task completed
+**Files:** `apps/web/src/features/library/chat/components/AnswerProgress.tsx`, `apps/web/src/features/library/chat/components/AnswerProgress.test.tsx`, `apps/web/src/features/library/chat/components/AssistantMessage.tsx`, `apps/web/src/features/library/chat/components/AssistantMessage.test.tsx`
+> The pending answer shows the current stage ("Searching your books…", then "Reading N passages and thinking…" once sources arrived), an elapsed-seconds counter after 5 s, and a hint after 45 s that long thinking is normal for the model. Derived from stream state, so re-attached turns read the same; the dots honour reduced motion and the counter is not announced by the live region.
+
 ### 2026-10-12 · Upload several PDFs at once (no sprint) · ✅ Done
 
 **Event:** Task completed

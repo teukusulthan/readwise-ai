@@ -98,7 +98,7 @@ describe('AssistantMessage', () => {
   it('shows progress and no grounding banner while streaming', () => {
     render(<AssistantMessage message={message({ content: '', grounded: false, mode: null })} phase="generating" />)
 
-    expect(screen.getByTestId('answer-progress')).toHaveTextContent('writing an answer')
+    expect(screen.getByTestId('answer-progress')).toHaveTextContent('Reading 2 passages and thinking')
     expect(screen.queryByTestId('ungrounded-banner')).not.toBeInTheDocument()
   })
 
