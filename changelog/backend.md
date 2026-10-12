@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Patch vulnerable dependencies, drop unused pins (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/pyproject.toml`, `apps/backend/uv.lock`
+> Upgraded `urllib3` 2.0.7 -> 2.8.0 (transitive), `python-multipart` 0.0.7 -> 0.0.32, `pymongo` 4.3.3 -> 4.18.3, `uvicorn` 0.22.0 -> 0.54.0 (`host`/`port`/`workers`/`reload`/`reload_dirs`/`proxy_headers` kwargs used by `uvicorn_options()` verified). Removed direct dependencies never imported by app, tests or scripts: `pydash`, `python-dateutil`, `pytz`, `regex`, `tzlocal` (the last four stay installed transitively via `dateparser`/`pandas`). Kept: `itsdangerous` (required by Starlette `SessionMiddleware`), `requests` (auth service). 244 unit tests pass.
+
 ### 2026-10-12 · Per-route rate limits and bounded ingestion queue (no sprint) · ✅ Done
 
 **Event:** Files modified
