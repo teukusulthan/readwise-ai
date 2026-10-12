@@ -114,6 +114,8 @@ export async function streamSse<TBody>({ path, body, signal, onMessage }: IStrea
 async function readErrorMessage(response: Response): Promise<string> {
   try {
     const body = await response.json()
+    // Primary shape: top-level envelope. `detail` shapes are kept for back-compat / validation errors.
+    if (body?.metaData?.message) return String(body.metaData.message)
     const detail = body?.detail
     if (typeof detail === 'string') return detail
     if (detail?.metaData?.message) return String(detail.metaData.message)

@@ -218,6 +218,8 @@ If you need to use these modules, you can access the documentation for the Auth,
 
 > `metaData.pagination` is only present on `get-all` (paginated) endpoints.
 
+Failures use this same envelope as the **top-level** body (HTTP status = `metaData.responseCode`); response headers such as `WWW-Authenticate` are preserved. Plain errors without an envelope (e.g. framework 404/405) and request-validation errors (`422`) keep FastAPI's default `{"detail": ...}` shape. Clients should read `metaData.message` first and fall back to `detail`. SSE endpoints report failures as `error` events instead.
+
 ---
 
 ## Pagination & Filter Standard (FindDTO)

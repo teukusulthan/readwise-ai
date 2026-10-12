@@ -73,7 +73,7 @@ async def test_upload_index_search_ask_delete(client):
 
     # Same file again → no duplicate book.
     again = await _upload(client, title="Copy")
-    assert again.status_code == 409 and "already uploaded" in again.json()["detail"]["metaData"]["message"]
+    assert again.status_code == 409 and "already uploaded" in again.json()["metaData"]["message"]
 
     results = (await client.post("/search/query", json={"query": "who built Saltmere Light in 1847"})).json()["data"]
     assert results["results"][0]["pageStart"] == 1 and "Agnes Morrow" in results["results"][0]["text"]

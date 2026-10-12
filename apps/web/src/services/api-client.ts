@@ -103,7 +103,8 @@ apiClient.interceptors.response.use(
     }
 
     // Standardize error structure
-    // Backend failures arrive as `{ detail: BaseResponseFailed }` (HTTPException) or a plain `{ detail: string }`.
+    // Backend failures arrive as a top-level `BaseResponseFailed` envelope (primary) or a plain `{ detail: string }`.
+    // The legacy `{ detail: BaseResponseFailed }` shape is still read for back-compat.
     const body = response?.data as any;
     const detail = body?.detail;
     const errorMessage =

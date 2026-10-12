@@ -1,6 +1,9 @@
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.exception_handlers import http_exception_handler as default_http_exception_handler
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from config.base import Setting
 import argparse
 import os
@@ -142,6 +145,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _envelope_http_exception_handler(request, exc):
+    """Return envelope failures (`detail` = {metaData, ...}) as the top-level body.
+
+    Plain-string/other details keep FastAPI's default `{"detail": ...}` shape.
+    Covers FastAPI's HTTPException too (it subclasses Starlette's).
+    """
+    detail = exc.detail
+    if isinstance(detail, dict) and "metaData" in detail:
+        return JSONResponse(detail, status_code=exc.status_code, headers=getattr(exc, "headers", None))
+    return await default_http_exception_handler(request, exc)
 
 
 def _pool_threads(prefix="syncpool"):

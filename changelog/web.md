@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Error envelope top-level (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/web/src/services/api-client.ts`, `apps/web/src/services/sse-client.ts`
+> Comments/readers updated: top-level `metaData.message` is the primary error shape; legacy `detail` shapes kept for back-compat.
+
 ### 2026-10-12 · Rebrand to "Readwise AI" (no sprint) · ✅ Done
 
 **Event:** Files modified

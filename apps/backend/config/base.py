@@ -104,7 +104,7 @@ class BaseSetting(BaseSettings):
 
     # HTTP hardening
     # Comma-separated allowed browser origins. "*" disables credentialed CORS.
-    CORS_ORIGINS: str = Field(default="http://localhost:3000")
+    CORS_ORIGINS: str = Field(default="http://localhost:3000,http://localhost:3001")
     # Session cookie secret (Google OAuth flow). Must differ from JWT_SECRET.
     SESSION_SECRET: Optional[str] = Field(default=None)
     MAX_REQUEST_BODY_MB: int = Field(default=100)

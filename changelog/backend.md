@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · One error envelope + dev-port CORS (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/api.py`, `apps/backend/config/base.py`, `apps/backend/.env.example`, `apps/backend/tests/unit/test_app.py`, `apps/backend/tests/integration/test_book_api.py`, `docs/api-spec.md`
+> HTTPException handler returns envelope failures as the top-level body (status and headers kept) instead of `{"detail": {...}}`; default `BE_CORS_ORIGINS` now includes `http://localhost:3001`.
+
 ### 2026-10-12 · Faster PDF indexing (no sprint) · ✅ Done
 
 **Event:** Files modified
