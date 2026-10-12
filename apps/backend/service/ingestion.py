@@ -10,8 +10,14 @@ counts an attempt (ingestion_attempts); at the next startup a job cut off that w
 re-queued while it has fewer than INGESTION_MAX_ATTEMPTS attempts, else marked failed
 (retry with reindex, which resets the count). This assumes one API process owns the queue.
 
+Docling parses in a child process (util/parse_process.py): a PDF that crashes the parser,
+exhausts its memory cap or exceeds INGESTION_PARSE_TIMEOUT_SECONDS fails that book with a
+user-safe message; the child is replaced and the API process carries on with the next job.
+Queue, claim, status and OCR-fallback decisions stay here, in the API process.
+
 Scanned PDFs: a parse with OCR off that yields no text is retried once with OCR on
-(DOCLING_OCR_FALLBACK), if Docling has a usable OCR engine (probed once per process).
+(DOCLING_OCR_FALLBACK), if Docling has a usable OCR engine (probed in the parse child, answer
+cached once per API process).
 
 Retry safety:
 - the status claim is an atomic UPDATE ... WHERE status = 'queued', so a job runs once;
@@ -31,8 +37,11 @@ from config.base import settings
 from service import Services
 from service.book_repository import BookRepository
 from service.vector_store import VectorStore
+from util import parse_process
+from util.parse_process import ParseFailed, ParserStopped
 
-# (pdf_path, ocr=False) -> (page_count, iterable of chunk dicts {text, embed_text, headings, page_start, page_end})
+# (pdf_path, ocr=False) -> (page_count, iterable of chunk dicts {text, embed_text, headings, page_start, page_end}).
+# Default: util.parse_process.parse_pdf (Docling in a child process); tests inject in-process fakes.
 Parser = Callable[..., tuple[Optional[int], Iterable[dict]]]
 
 NO_TEXT_MESSAGE = "No text could be extracted. The PDF may be scanned images (OCR is disabled) or empty."
@@ -64,6 +73,7 @@ class _Workers:
 
     _queue: Optional[queue.Queue] = None
     _lock = threading.Lock()
+    _stopped = False  # app shutdown: jobs still waiting are left `queued` for the next startup
 
     @classmethod
     def submit(cls, job: Callable[[], None]):
@@ -79,9 +89,19 @@ class _Workers:
         while True:
             job = cls._queue.get()
             try:
-                job()
+                if not cls._stopped:
+                    job()
             finally:
                 cls._queue.task_done()
+
+
+def shutdown():
+    """
+    App shutdown: stop starting queued jobs (they stay `queued`, so no attempt is spent on them),
+    then kill the parse child; a parse it was running stays `processing` and resumes at startup.
+    """
+    _Workers._stopped = True
+    parse_process.shutdown()
 
 
 class Ingestion:
@@ -102,8 +122,8 @@ class Ingestion:
     @property
     def parser(self) -> Parser:
         if self._parser is None:
-            # Imported lazily: Docling pulls in PyTorch and takes seconds to import.
-            from util.document_parser import parse_pdf
+            # Docling itself is only imported in the parse child, never in the API process.
+            from util.parse_process import parse_pdf
 
             self._parser = parse_pdf
         return self._parser
@@ -111,7 +131,7 @@ class Ingestion:
     @property
     def ocr_available(self) -> Callable[[], bool]:
         if self._ocr_available is None:
-            from util.document_parser import ocr_available
+            from util.parse_process import ocr_available
 
             self._ocr_available = ocr_available
         return self._ocr_available
@@ -136,8 +156,13 @@ class Ingestion:
         started = datetime.now(timezone.utc)
         try:
             page_count, chunk_count = self._index(book)
+        except ParserStopped:
+            # App shutdown cut the parse off: leave the book `processing`; startup recovery resumes it.
+            logger.warning("Book {id}: parsing stopped by shutdown; it resumes at the next startup", id=book_id)
+            return
         except Exception as error:
-            message = str(error) if isinstance(error, UserFacingError) else "Indexing failed. See server logs."
+            user_safe = isinstance(error, (UserFacingError, ParseFailed))
+            message = str(error) if user_safe else "Indexing failed. See server logs."
             logger.exception("Indexing failed for book {id}", id=book_id)
             if self._drop_points_if_book_deleted(book_id):
                 return

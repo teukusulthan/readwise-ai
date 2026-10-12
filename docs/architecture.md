@@ -49,7 +49,9 @@ library-rag/
      ├── Open Library ...... book metadata import                            httpx
      ├── Local disk ........ uploaded PDFs: storage/books/<book_id>.pdf
      └── MongoDB + Redis ... existing boilerplate auth/user modules only
- Background: one daemon ingestion thread inside the API process runs Docling + embedding + Qdrant writes
+ Background: one daemon ingestion thread inside the API process runs the job (claim, status, OCR
+ fallback decision, embedding, Qdrant writes); Docling itself parses in one child process
+ (util/parse_process.py), so a crashing or runaway PDF cannot take the API and its chat sessions down
  (daemon = shutdown/auto-reload never waits for it; an interrupted job is re-queued at the next startup,
  up to BE_INGESTION_MAX_ATTEMPTS claims, then marked failed).
 ```
@@ -74,14 +76,22 @@ POST /book/upload  (multipart: file, optional bookId | title)
   worker thread: Ingestion.run
      6. claim: UPDATE … SET status='processing', ingestion_attempts + 1 WHERE status='queued'
         (atomic; a job runs once; every claim counts an attempt)
-     7. util/document_parser.parse_pdf
+     7. util/parse_process.parse_pdf → in the parse child: util/document_parser.parse_pdf
+          child: ProcessPoolExecutor(max_workers=1, spawn), replaced after BE_INGESTION_PARSE_TASKS_PER_CHILD
+          (20) parses; converters/models are cached per child; chunks come back as one list of dicts.
+          Wall-clock limit per parse BE_INGESTION_PARSE_TIMEOUT_SECONDS (1800) → child killed (not awaited),
+          failed "Parsing this PDF took too long and was stopped."; child died (segfault, os._exit, OOM kill)
+          → failed "The PDF parser crashed on this file."; MemoryError under the optional RLIMIT_AS cap
+          BE_INGESTION_PARSE_MAX_MEMORY_MB (0 = off) → failed "Parsing this PDF needed more memory than the
+          server allows.". A fresh child takes the next job; the API process is unaffected.
           page count first (pypdfium2) → reject if > MAX_PDF_PAGES
           Docling DocumentConverter (OCR off, table structure on, 4 CPU threads) in windows of 20 pages
           → one DoclingDocument per window (absolute page numbers; heading carried across window boundaries)
           HybridChunker(tokenizer = Qwen3 tokenizer, max 512 tokens, merge_peers)
           → chunks: text, embed_text (headings + text), headings, page_start, page_end
           zero chunks (scanned PDF) and BE_DOCLING_OCR_FALLBACK=true → if Docling has a usable OCR engine
-          (util/document_parser.ocr_available: probed once per process by building the OCR pipeline),
+          (util/document_parser.ocr_available: probed in the parse child by building the OCR pipeline;
+          the answer is cached once per API process; a probe that crashed/timed out counts as "no", uncached),
           parse once more with a second, separately cached converter with OCR on (same threads / layout
           batch); still nothing → failed "No text could be extracted, even with OCR. …". No engine → no
           OCR pass, one warning per process ("OCR fallback enabled but no OCR engine is available;
@@ -100,6 +110,9 @@ queued/processing by the previous process: ingestion_attempts < BE_INGESTION_MAX
 and handed to the worker again (interrupted 'processing' job first, then queue order; the
 BE_INGESTION_MAX_QUEUED cap does not apply — it is not a new submission); at the cap → 'failed'
 "Ingestion was interrupted (server restart). Retry with reindex." Counts of both are logged.
+At shutdown (lifespan → service/ingestion.shutdown): waiting jobs are no longer started (they stay
+'queued', no attempt spent), the parse child is killed without waiting, and the job it was parsing stays
+'processing' — both resume at the next startup.
 Assumption: exactly one API process owns the ingestion queue. With several processes, a starting one
 would re-queue jobs another is still running (a multi-process owner/heartbeat design is out of scope).
 ```
@@ -227,7 +240,8 @@ deleted book's points are never returned; the worker drops points of a book dele
 | `service/book.py` | Catalog, upload, reindex, delete, Open Library import; `to_api()` response shape |
 | `router/book.py`, `router/search.py`, `router/chat.py` | HTTP endpoints (thin) |
 | `util/storage.py` | Streaming PDF storage + sha256 |
-| `util/document_parser.py` | Docling conversion + HybridChunker → chunk dicts |
+| `util/document_parser.py` | Docling conversion + HybridChunker → chunk dicts (runs in the parse child) |
+| `util/parse_process.py` | The parse child: timeout, memory cap, crash → user-safe errors, kill on shutdown |
 | `service/ingestion.py` | Background indexing job + status state machine |
 | `service/vector_store.py` | Qdrant collection, upsert, delete, search |
 | `util/embedding.py` | Company embedding client (batches of 32, retries, dim check, query instruction) |
@@ -271,6 +285,8 @@ deleted book's points are never returned; the worker drops points of a book dele
 | Upload → indexed (API, background thread) | ~15 s for the sample book |
 | Docling layout model share of indexing time | ~91% |
 | Docling throughput, 8 threads + layout batch size 1 (defaults) | ~0.8 s/page, vs 1.2–1.4 s/page with 4 threads + batch 4; byte-identical chunks, lower peak RAM |
+| Parse child vs in-process (shared 32-CPU box under load ~10–14, so slower than the row above) | warm: 3.4–3.7 vs 3.6 s/page (3-page sample), 2.8–3.4 vs 2.4–3.0 s/page (14-page book) — within run-to-run noise; first parse incl. model load 34–37 s vs 31–36 s (+~1–3 s: spawning the child and re-importing `api.py`); identical chunks |
+| `BE_INGESTION_PARSE_MAX_MEMORY_MB` on the 3-page sample | 3072: child spins, stopped by the timeout; 6144: native (Rust tokenizer) panic → generic failure; 12288: parses. RLIMIT_AS counts virtual memory (PyTorch reserves far more than it uses) |
 | Retrieval scores (with query instruction) | relevant top hit 0.53–0.77; off-topic best 0.39 → threshold 0.45 |
 | Without query instruction | relevant 0.42–0.72 vs off-topic 0.34 → would miss answers at 0.45 (why the instruction is on) |
 
@@ -288,7 +304,8 @@ deleted book's points are never returned; the worker drops points of a book dele
 | Retrieve first; skip the LLM when nothing is relevant | Cheap and cannot hallucinate in that case | Threshold depends on the embedding model — re-measure if it changes |
 | `retrieval_only` mode without an LLM | The app is usable before the LLM key exists | Users see passages, not a written answer |
 | Windowed Docling parsing (20 pages) | Bounded memory on big books on a CPU-only machine | Tables/sections spanning a window edge are split (heading is carried over) |
-| In-process daemon worker thread | No queue infrastructure for the MVP; never blocks shutdown or reload | Jobs die with the process (marked failed at startup); one job at a time |
+| In-process daemon worker thread | No queue infrastructure for the MVP; never blocks shutdown or reload | Jobs die with the process (re-queued at startup); one job at a time |
+| Docling in one child process (spawn, recycled every 20 parses) | A native crash, memory blow-up or endless parse fails one book instead of killing the API and every chat session | Chunks of a book cross the process boundary as one list; ~1–3 s to start a child plus a model load per new child |
 | Local disk for PDFs | No S3 server locally | Single machine only |
 
 ---
@@ -316,7 +333,7 @@ uv sync && uv run python api.py --port 8020           # migrations run automatic
 cd apps/web && npm install && npm run dev             # http://localhost:3000
 ```
 
-Dev auto-reload is opt-in (`--reload`; the nx `serve` target passes it) and watches only the source packages (`RELOAD_DIRS` in `api.py`): a reload kills indexing jobs running in the API process (the next startup re-queues them, up to `BE_INGESTION_MAX_ATTEMPTS` claims; after that they are marked failed and need **Reindex**), so editing `tests/`, `scripts/` or writing to `storage/` does not restart the server. After editing `api.py` itself, restart by hand.
+Dev auto-reload is opt-in (`--reload`; the nx `serve` target passes it) and watches only the source packages (`RELOAD_DIRS` in `api.py`): a reload kills indexing jobs running in the API process (and the parse child) (the next startup re-queues them, up to `BE_INGESTION_MAX_ATTEMPTS` claims; after that they are marked failed and need **Reindex**), so editing `tests/`, `scripts/` or writing to `storage/` does not restart the server. After editing `api.py` itself, restart by hand.
 
 Ports taken by another project? Run the backend on another port and point the web proxy at it in `apps/web/env/.env`:
 `PORT=3001` and `BACKEND_PROXY_TARGET=http://localhost:8021`.

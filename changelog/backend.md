@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Parse PDFs in a child process (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/util/parse_process.py`, `apps/backend/service/ingestion.py`, `apps/backend/api.py`, `apps/backend/config/base.py`, `apps/backend/.env.example`, `apps/backend/tests/unit/{test_parse_process,parse_child_fakes,test_ingestion,test_app}.py`, `apps/backend/tests/docling/test_document_parser.py`, `docs/architecture.md`, `docs/api-spec.md`
+> Docling now parses in one child process (`ProcessPoolExecutor(max_workers=1)`, spawn, replaced after `BE_INGESTION_PARSE_TASKS_PER_CHILD`=20 parses; converters cached per child, Task 1 thread/batch options unchanged) instead of on the API's ingestion thread; the API process no longer imports Docling. Queue, claim, attempts, status and the OCR-fallback decision stay in the API process; the OCR engine probe runs in the child and its answer is cached per API process. `BE_INGESTION_PARSE_TIMEOUT_SECONDS` (1800) per parse: the child is killed (not awaited) and the book fails with "Parsing this PDF took too long and was stopped."; a dead child (segfault/`os._exit`/OOM kill) fails it with "The PDF parser crashed on this file."; optional `BE_INGESTION_PARSE_MAX_MEMORY_MB` (RLIMIT_AS in the child, 0 = off) with "Parsing this PDF needed more memory than the server allows." for a `MemoryError`. A fresh child takes the next job; the API stays up. App shutdown stops starting queued jobs (they stay `queued`) and kills the child; the book it was parsing stays `processing` and resumes at startup. Measured on a loaded shared box: per-page time within noise of in-process; +~1–3 s per new child.
+
 ### 2026-10-12 · Self-healing indexing: resume after restart + OCR fallback (no sprint) · ✅ Done
 
 **Event:** Files modified

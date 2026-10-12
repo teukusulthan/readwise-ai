@@ -52,3 +52,13 @@ def test_small_windows_give_same_pages_and_headings(settings, monkeypatch):
     assert sorted({c["page_start"] for c in chunks}) == [1, 2, 3]
     storm = next(c for c in chunks if "Thomas Hale" in c["text"])
     assert storm["headings"] == ["Chapter 3: The Great Storm of 1911"] and storm["page_start"] == 3
+
+
+def test_child_process_parse_gives_the_same_chunks(parsed):
+    from util.parse_process import ParseProcess
+
+    process = ParseProcess(timeout_seconds=600, max_memory_mb=0, tasks_per_child=1)
+    try:
+        assert process.parse_pdf(str(SAMPLE)) == (parsed[0], parsed[1])
+    finally:
+        process.shutdown()

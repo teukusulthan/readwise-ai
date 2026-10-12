@@ -100,6 +100,10 @@ async def lifespan(app: FastAPI):
     chat = sys.modules.get("router.chat")
     if chat is not None:
         await chat.sessions.shutdown()
+    # Kill the Docling parse child without waiting for it (an interrupted job resumes at startup).
+    ingestion = sys.modules.get("service.ingestion")
+    if ingestion is not None:
+        ingestion.shutdown()
 
 
     # logger.debug(f"Application Closed")

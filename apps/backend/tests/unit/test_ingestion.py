@@ -7,6 +7,15 @@ import service.ingestion as ingestion_module
 from service.ingestion import NO_OCR_ENGINE_WARNING, NO_TEXT_MESSAGE, NO_TEXT_WITH_OCR_MESSAGE, Ingestion
 from service.book_repository import INTERRUPTED_MESSAGE
 from service.vector_store import VectorStore
+from util.parse_process import (
+    PARSE_TIMEOUT_MESSAGE,
+    PARSER_CRASHED_MESSAGE,
+    PARSER_OUT_OF_MEMORY_MESSAGE,
+    ParserCrashed,
+    ParserOutOfMemory,
+    ParserStopped,
+    ParseTimedOut,
+)
 
 DIM = 4
 
@@ -129,6 +138,30 @@ def test_unexpected_error_fails_without_leaking_details(store):
     assert "secret" not in book["ingestion_error"]
 
 
+@pytest.mark.parametrize("error, message", [
+    (ParseTimedOut(PARSE_TIMEOUT_MESSAGE), PARSE_TIMEOUT_MESSAGE),
+    (ParserCrashed(PARSER_CRASHED_MESSAGE), PARSER_CRASHED_MESSAGE),
+    (ParserOutOfMemory(PARSER_OUT_OF_MEMORY_MESSAGE), PARSER_OUT_OF_MEMORY_MESSAGE),
+])
+def test_a_failed_parse_child_fails_the_book_with_its_safe_message(store, error, message):
+    def failing_parser(path, ocr=False):
+        raise error
+
+    book = _book()
+    _ingestion(book, store, failing_parser).enqueue(book["id"])
+    assert book["ingestion_status"] == "failed" and book["ingestion_error"] == message
+
+
+def test_a_parse_stopped_by_shutdown_leaves_the_book_processing_for_startup_recovery(store):
+    def stopped_parser(path, ocr=False):
+        raise ParserStopped("parse stopped by shutdown")
+
+    book = _book()
+    ingestion = _ingestion(book, store, stopped_parser)
+    ingestion.enqueue(book["id"])
+    assert ingestion.repository.history == ["queued", "processing"] and book["ingestion_error"] is None
+
+
 def test_too_many_pages_rejected(store, settings, monkeypatch):
     monkeypatch.setattr(settings, "MAX_PDF_PAGES", 2)
     book = _book()
@@ -182,6 +215,24 @@ def test_worker_threads_are_daemons_so_shutdown_never_waits():
     assert done.wait(5)
     workers = [t for t in threading.enumerate() if t.name.startswith("ingest-")]
     assert workers and all(t.daemon for t in workers)
+
+
+def test_shutdown_leaves_waiting_jobs_queued_and_stops_the_parse_child(monkeypatch):
+    import threading
+
+    from service.ingestion import _Workers
+
+    stopped = []
+    monkeypatch.setattr(_Workers, "_stopped", False)
+    monkeypatch.setattr(ingestion_module.parse_process, "shutdown", lambda: stopped.append(True))
+    ingestion_module.shutdown()
+    assert stopped == [True]
+
+    ran, drained = [], threading.Event()
+    _Workers.submit(lambda: ran.append(True))
+    _Workers.submit(drained.set)  # never runs either: shows the worker went past both jobs
+    _Workers._queue.join()
+    assert ran == [] and not drained.is_set()
 
 
 # ── attempts + startup recovery ───────────────────────────────────────

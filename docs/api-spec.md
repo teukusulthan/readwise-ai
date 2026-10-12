@@ -335,6 +335,9 @@ Full flows and response shapes: [`docs/architecture.md`](./architecture.md) §4.
 `ingestion.attempts` counts how many times the worker has claimed the book (`queued` → `processing`)
 since its upload or last reindex. A job interrupted by a restart is resumed at startup while
 `attempts < BE_INGESTION_MAX_ATTEMPTS` (3); at the cap it becomes `failed`.
+`ingestion.error` is always safe to show; PDF parsing runs in a separate process, so a bad file fails
+only its own book, e.g. "Parsing this PDF took too long and was stopped." (`BE_INGESTION_PARSE_TIMEOUT_SECONDS`),
+"The PDF parser crashed on this file." or "Parsing this PDF needed more memory than the server allows."
 
 ### `POST /chat/ask`
 

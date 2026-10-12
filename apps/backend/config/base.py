@@ -162,6 +162,14 @@ class BaseSetting(BaseSettings):
     # Jobs left queued/processing by a restart are re-queued at startup while the book has been claimed
     # fewer than this many times; at the cap they are marked failed (0 = never resume, always fail).
     INGESTION_MAX_ATTEMPTS: int = Field(default=3)
+    # Docling runs in a child process (a crash or runaway PDF cannot take the API down).
+    # Wall-clock limit per parse; on timeout the child is killed and the book marked failed.
+    INGESTION_PARSE_TIMEOUT_SECONDS: int = Field(default=1800)
+    # Address-space cap for the child (RLIMIT_AS), in MB; 0 = no cap. Virtual memory: Docling needed
+    # more than 6144 for a 3-page PDF (12288 worked).
+    INGESTION_PARSE_MAX_MEMORY_MB: int = Field(default=0)
+    # The child is replaced after this many parses: bounds leaks, amortises the model load.
+    INGESTION_PARSE_TASKS_PER_CHILD: int = Field(default=20)
     DOCLING_DO_OCR: bool = Field(default=False)
     # When a parse with OCR off yields no text (scanned PDF), parse that book once more with OCR on.
     DOCLING_OCR_FALLBACK: bool = Field(default=True)

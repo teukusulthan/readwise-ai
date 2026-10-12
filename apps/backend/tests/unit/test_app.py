@@ -118,3 +118,15 @@ def test_cors_default_origins_include_dev_port_3001():
 
     default = BaseSetting.__fields__["CORS_ORIGINS"].default
     assert "http://localhost:3001" in default.split(",")
+
+
+async def test_app_shutdown_stops_ingestion_and_the_parse_child(app, monkeypatch):
+    import api
+    import service.ingestion as ingestion
+
+    stopped = []
+    monkeypatch.setattr(api, "_prepare_book_library", lambda: None)
+    monkeypatch.setattr(ingestion, "shutdown", lambda: stopped.append(True))
+    async with api.lifespan(app):
+        assert stopped == []
+    assert stopped == [True]
