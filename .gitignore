@@ -102,3 +102,6 @@ apps/backend/storage/
 # Company boilerplate + local agent config (kept on disk, not published)
 .claude/
 .mcp.json
+
+# Superpowers SDD scratch (ledger, briefs, review packages)
+.superpowers/
