@@ -2,7 +2,7 @@ from datetime import date, datetime
 from time import time
 import dateparser
 from fastapi import Depends
-from auth.auth_bearer import JWTBearer
+from auth.principal import current_principal
 from config.base import settings
 import re
 from Crypto.Cipher import AES
@@ -230,7 +230,7 @@ def router_param_builder(tag, jwt=True):
     }
 
     if jwt:
-        result["dependencies"] = [Depends(JWTBearer())] if settings.JWT_ACTIVE else None
+        result["dependencies"] = [Depends(current_principal)] if settings.JWT_ACTIVE else None
 
     return result
 
@@ -241,7 +241,7 @@ def custom_router_param_builder(tags: list, prefix: str, jwt=True):
         "tags": tags,
     }
     if jwt:
-        result["dependencies"] = [Depends(JWTBearer())] if settings.JWT_ACTIVE else None
+        result["dependencies"] = [Depends(current_principal)] if settings.JWT_ACTIVE else None
 
     return result
 

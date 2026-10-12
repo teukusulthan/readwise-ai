@@ -10,6 +10,9 @@ with its sources. History therefore survives reloads and is the same in every br
 
 If the client goes away mid-answer (Stop button, closed tab), the partial answer is
 saved as mode "stopped" so the history never shows a question without a reply.
+
+Conversations are personal: every method takes the caller's `owner` (auth/principal.Principal)
+and another owner's conversation is reported exactly like a missing one (404).
 """
 
 import asyncio
@@ -17,6 +20,7 @@ from typing import AsyncIterator, Iterable, Optional
 
 from loguru import logger
 
+from auth.principal import Principal
 from config.base import settings
 from dto.chat import ChatAskDTO
 from dto.conversation import RenameConversationDTO
@@ -59,36 +63,40 @@ class Conversation:
 
     # ── CRUD ─────────────────────────────────────────────────────────
 
-    def get_all(self, page: int, size: int) -> tuple[list[dict], int]:
-        rows, total = self.repository.list_recent(page=page, size=size)
+    def get_all(self, owner: Principal, page: int, size: int) -> tuple[list[dict], int]:
+        rows, total = self.repository.list_recent(owner, page=page, size=size)
         return [conversation_to_api(row) for row in rows], total
 
-    def get_by_id(self, conversation_id) -> dict:
-        row = self._get(conversation_id)
+    def get_by_id(self, conversation_id, owner: Principal) -> dict:
+        row = self._get(conversation_id, owner)
         messages = self.repository.messages(row["id"])
         return {**conversation_to_api(row), "messages": [message_to_api(m) for m in messages]}
 
-    def rename(self, dto: RenameConversationDTO) -> dict:
-        row = self.repository.rename(dto.id, dto.title)
+    def rename(self, dto: RenameConversationDTO, owner: Principal) -> dict:
+        row = self.repository.rename(dto.id, dto.title, owner)
         if not row:
             raise ConversationNotFoundError("Conversation not found.")
         return conversation_to_api(row)
 
-    def delete(self, conversation_id) -> dict:
-        row = self.repository.delete(conversation_id)
+    def delete(self, conversation_id, owner: Principal) -> dict:
+        row = self.repository.delete(conversation_id, owner)
         if not row:
             raise ConversationNotFoundError("Conversation not found.")
         return {"id": str(row["id"]), "deleted": True}
 
-    def _get(self, conversation_id) -> dict:
-        row = self.repository.get(conversation_id)
+    def ensure_owned(self, conversation_id, owner: Principal) -> None:
+        """NotFoundError unless `owner` may use this conversation (ValueError for a malformed id)."""
+        self._get(conversation_id, owner)
+
+    def _get(self, conversation_id, owner: Principal) -> dict:
+        row = self.repository.get(conversation_id, owner)
         if not row:
             raise ConversationNotFoundError("Conversation not found.")
         return row
 
     # ── one streamed turn ────────────────────────────────────────────
 
-    async def stream_turn(self, dto: ChatAskDTO) -> AsyncIterator[tuple[str, dict]]:
+    async def stream_turn(self, dto: ChatAskDTO, owner: Principal) -> AsyncIterator[tuple[str, dict]]:
         """
         Yields (event, data): `conversation` {conversation} first, then the Rag events
         (status → sources → delta… → done | error). `done` / `error` also carry the
@@ -96,12 +104,13 @@ class Conversation:
         """
         try:
             if dto.conversationId:
-                row = await asyncio.to_thread(self._get, dto.conversationId)
+                row = await asyncio.to_thread(self._get, dto.conversationId, owner)
                 # 2 messages per turn, plus slack for failed turns that history_from skips.
                 recent = await asyncio.to_thread(self.repository.recent_messages, row["id"],
                                                  settings.CHAT_HISTORY_TURNS * 2 + 4)
             else:
-                row = await asyncio.to_thread(self.repository.create, make_title(dto.question), dto.bookIds)
+                row = await asyncio.to_thread(self.repository.create, make_title(dto.question), dto.bookIds,
+                                              owner_id=owner.owner_id)
                 recent = []
         except (NotFoundError, ValueError) as error:
             yield "error", {"message": str(error), "code": 404 if isinstance(error, NotFoundError) else 400}

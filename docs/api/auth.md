@@ -61,7 +61,9 @@ Login and obtain access token + refresh token. Tokens are stored in HttpOnly coo
 
 ### `POST /auth/register`
 
-Register a new account. Sends an OTP to the email.
+Register a new account. By default (`BE_AUTH_EMAIL_VERIFICATION=true`) the email is checked (MX + Proofy) and an
+OTP is mailed over SMTP; the account exists only after `POST /auth/verification`. With
+`BE_AUTH_EMAIL_VERIFICATION=false` (development only) the active account is created immediately and no mail is sent.
 
 **Request Body** — `RegisterDTO`
 
@@ -79,16 +81,18 @@ Register a new account. Sends an OTP to the email.
 ```json
 {
   "metaData": { "status": true, "executionTime": 5, "responseCode": 200, "message": "Success" },
-  "data": { "message": "Email register sent" }
+  "data": { "message": "Email register sent", "verificationRequired": true }
 }
 ```
+
+With `BE_AUTH_EMAIL_VERIFICATION=false`: `"data": { "message": "Account created", "verificationRequired": false, "id": "string" }`.
 
 **Responses**
 
 | Status | Description |
 |---|---|
-| `200` | Registration successful, OTP sent |
-| `400` | Invalid input or invalid email |
+| `200` | Registration successful (OTP sent, or account created) |
+| `400` | Invalid input, invalid email, or email / username / phone already taken |
 
 ---
 

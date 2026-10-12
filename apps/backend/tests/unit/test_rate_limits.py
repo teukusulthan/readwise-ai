@@ -9,6 +9,7 @@ import pytest
 from fastapi import Depends, FastAPI
 
 from auth.auth_handler import base_sign_jwt
+from auth.principal import LOCAL
 from dto.chat import ChatAskDTO
 from middleware import route_limits
 from service import chat_session as chat_session_module
@@ -251,27 +252,27 @@ DTO = ChatAskDTO(question="q")
 
 async def test_claim_beyond_the_cap_is_429(chat):
     sessions, _ = chat
-    await sessions.claim(DTO)
-    await sessions.claim(DTO)
+    await sessions.claim(DTO, LOCAL)
+    await sessions.claim(DTO, LOCAL)
     with pytest.raises(TooManyRequestsError, match=BUSY_MESSAGE) as caught:
-        await sessions.claim(DTO)
+        await sessions.claim(DTO, LOCAL)
     assert caught.value.retry_after >= 1
 
 
 async def test_finished_session_frees_a_slot(chat):
     sessions, _ = chat
-    first = await sessions.claim(DTO)
-    await sessions.claim(DTO)
+    first = await sessions.claim(DTO, LOCAL)
+    await sessions.claim(DTO, LOCAL)
     await sessions.store.update(first, status="done")
-    await sessions.claim(DTO)   # counting prunes the finished session
+    await sessions.claim(DTO, LOCAL)   # counting prunes the finished session
 
 
 async def test_dead_session_stops_counting_after_the_stale_window(chat):
     sessions, clock = chat
-    await sessions.claim(DTO)
-    await sessions.claim(DTO)
+    await sessions.claim(DTO, LOCAL)
+    await sessions.claim(DTO, LOCAL)
     clock["now"] += 31          # heartbeats stale: both runners died
-    await sessions.claim(DTO)
+    await sessions.claim(DTO, LOCAL)
     assert await sessions.store.count_running() == 1
 
 
@@ -281,9 +282,9 @@ async def test_refused_second_turn_on_a_conversation_does_not_hold_a_slot(chat):
 
     sessions, _ = chat
     cid = ChatAskDTO(question="q", conversationId="11111111-1111-1111-1111-111111111111")
-    await sessions.claim(cid)
+    await sessions.claim(cid, LOCAL)
     with pytest.raises(ConflictError, match=TURN_RUNNING_MESSAGE):
-        await sessions.claim(cid)
+        await sessions.claim(cid, LOCAL)
     assert await sessions.store.count_running() == 1
 
 
@@ -291,14 +292,14 @@ async def test_cap_zero_means_unlimited(chat, settings, monkeypatch):
     sessions, _ = chat
     monkeypatch.setattr(settings, "CHAT_MAX_CONCURRENT_SESSIONS", 0)
     for _ in range(5):
-        await sessions.claim(DTO)
+        await sessions.claim(DTO, LOCAL)
 
 
 async def test_slot_is_released_when_the_answer_ends(chat):
     import asyncio
 
     sessions, _ = chat
-    session_id = await sessions.start(DTO)
+    session_id = await sessions.start(DTO, LOCAL)
     await asyncio.wait_for(sessions.conversations.finished.wait(), 5)
     for _ in range(100):
         if await sessions.store.client.zcard("chat:sessions:running") == 0:

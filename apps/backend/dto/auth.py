@@ -52,6 +52,10 @@ class RegisterDTO(BaseModel):
         if not re.match(pattern, email):
             raise ValueError("Invalid email format")
 
+        # BE_AUTH_EMAIL_VERIFICATION=false (development): no DNS / Proofy deliverability lookups.
+        if not settings.AUTH_EMAIL_VERIFICATION:
+            return email
+
         if not cls.has_mx_record(email):
             raise ValueError("Email domain is not valid or cannot receive messages")
         

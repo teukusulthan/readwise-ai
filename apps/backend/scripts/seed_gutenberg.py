@@ -19,6 +19,7 @@ with the same title get the PDF attached.
     uv run scripts/seed_gutenberg.py                # all books, then exit (indexing continues in the API)
     uv run scripts/seed_gutenberg.py --wait         # ... and wait until every book is indexed
     uv run scripts/seed_gutenberg.py --only 11 84   # just these Gutenberg ids
+    uv run scripts/seed_gutenberg.py --internal-token "$TOKEN"   # BE_JWT_ACTIVE=true: the service token
 
 Needs the backend running (default http://localhost:8021, override with --api) and Google Chrome / Chromium.
 Books are queued shortest first, so the first ones become searchable within minutes.
@@ -181,8 +182,10 @@ def _slug(text: str) -> str:
 # ── backend API ──────────────────────────────────────────────────────
 
 class Library:
-    def __init__(self, base_url: str, token: str | None):
+    def __init__(self, base_url: str, token: str | None, internal_token: str | None = None):
         headers = {"Authorization": f"Bearer {token}"} if token else {}
+        if internal_token:
+            headers["X-Internal-Token"] = internal_token
         self.http = httpx.Client(base_url=base_url, headers=headers, timeout=120)
 
     def _data(self, response: httpx.Response):
@@ -224,6 +227,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--api", default="http://localhost:8021", help="backend base URL")
     parser.add_argument("--token", default=None, help="JWT bearer token (only if BE_JWT_ACTIVE=true)")
+    parser.add_argument("--internal-token", default=None,
+                        help="service token sent as X-Internal-Token (the backend's BE_INTERNAL_TOKEN; "
+                             "an alternative to --token while BE_JWT_ACTIVE=true)")
     parser.add_argument("--only", type=int, nargs="*", help="Gutenberg ids to seed (default: all)")
     parser.add_argument("--wait", action="store_true", help="wait until every seeded book is indexed")
     args = parser.parse_args()
@@ -232,7 +238,7 @@ def main():
     books =[b for b in BOOKS if not args.only or b.gutenberg_id in args.only]
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     chrome = find_chrome()
-    library = Library(args.api, args.token)
+    library = Library(args.api, args.token, args.internal_token)
     gutenberg = httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=60, follow_redirects=True)
 
     queued: dict[str, str] = {}

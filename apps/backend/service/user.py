@@ -217,10 +217,8 @@ class User(BaseMongoRepository):
         return self.add_or_update_user_status_process(data, dto.id)
 
     def get_user_status_by_id(self, id: str):
-        data = self.collection_user_status_view.find_one({"_id": id})
-        if data:
-            data["id"] = data.pop("_id")
-            return data
+        # Online status is not tracked in this project: the boilerplate's status collection was never
+        # configured (no MONGO_COLLECTION_* for it), and reading it made every login fail.
         return {}
 
     def add_or_update_user_status_process(self, data, _id):

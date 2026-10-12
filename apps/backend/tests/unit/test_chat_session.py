@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from auth.principal import LOCAL, Principal
 from dto.chat import ChatAskDTO
 from service.chat_session import TURN_RUNNING_MESSAGE, ChatSessions, StoredEvent, parse_event_id
 from util.http_errors import ConflictError, NotFoundError
@@ -23,9 +24,9 @@ class MemorySessionStore:
         self._seq = 0
         self._changed = asyncio.Event()
 
-    async def create(self, session_id):
+    async def create(self, session_id, owner_id):
         now = time.time()
-        self.metas[session_id] = {"status": "running", "created_at": now, "heartbeat": now}
+        self.metas[session_id] = {"status": "running", "created_at": now, "heartbeat": now, "owner": owner_id}
 
     async def append(self, session_id, event, data):
         self._seq += 1
@@ -100,8 +101,13 @@ class FakeConversations:
         self.deltas, self.gate, self.fail = deltas, gate, fail
         self.finished = asyncio.Event()
         self.stopped = False
+        self.owners = {CONVERSATION_ID: LOCAL.owner_id}   # conversation id -> owner_id
 
-    async def stream_turn(self, dto):
+    def ensure_owned(self, conversation_id, owner):
+        if conversation_id not in self.owners or not owner.can_see(self.owners[conversation_id]):
+            raise NotFoundError("Conversation not found.")
+
+    async def stream_turn(self, dto, owner):
         try:
             yield "conversation", {"id": CONVERSATION_ID, "title": dto.question}
             yield "status", {"stage": "generating"}
@@ -125,9 +131,9 @@ def _sessions(**kwargs):
     return ChatSessions(conversations=fake, store=store), store, fake
 
 
-async def _collect(sessions, session_id, after="0", stop_after=None):
+async def _collect(sessions, session_id, after="0", stop_after=None, owner=LOCAL):
     out = []
-    async for item in sessions.events(session_id, after):
+    async for item in sessions.events(session_id, after, owner=owner):
         out.append(item)
         if stop_after and len(out) >= stop_after:
             break
@@ -146,7 +152,7 @@ async def _until(condition, timeout=5.0):
 
 async def test_events_are_stored_with_ids_in_order():
     sessions, store, _ = _sessions()
-    session_id = await sessions.start(DTO)
+    session_id = await sessions.start(DTO, LOCAL)
     events = await asyncio.wait_for(_collect(sessions, session_id), 5)
     assert [e.event for e in events] == ["session", "conversation", "status", "delta", "delta", "done"]
     assert json.loads(events[0].data) == {"sessionId": session_id}
@@ -157,7 +163,7 @@ async def test_events_are_stored_with_ids_in_order():
 async def test_answer_continues_after_the_client_disconnects_and_resumes_from_last_id():
     gate = asyncio.Event()
     sessions, store, fake = _sessions(gate=gate)
-    session_id = await sessions.start(DTO)
+    session_id = await sessions.start(DTO, LOCAL)
 
     # The client reads until the first delta, then its connection drops.
     first = await asyncio.wait_for(_collect(sessions, session_id, stop_after=4), 5)
@@ -173,10 +179,10 @@ async def test_answer_continues_after_the_client_disconnects_and_resumes_from_la
 async def test_cancel_stops_generation_and_ends_the_stream():
     gate = asyncio.Event()
     sessions, store, fake = _sessions(gate=gate)
-    session_id = await sessions.start(DTO)
+    session_id = await sessions.start(DTO, LOCAL)
     await asyncio.wait_for(_collect(sessions, session_id, stop_after=4), 5)
 
-    result = await sessions.cancel(session_id)
+    result = await sessions.cancel(session_id, LOCAL)
     assert result["cancelled"] is True
     await asyncio.wait_for(fake.finished.wait(), 5)
     assert fake.stopped is True
@@ -190,18 +196,18 @@ async def test_cancel_stops_generation_and_ends_the_stream():
 async def test_active_session_of_a_conversation_until_it_finishes():
     gate = asyncio.Event()
     sessions, store, fake = _sessions(gate=gate)
-    session_id = await sessions.start(DTO)
+    session_id = await sessions.start(DTO, LOCAL)
     await asyncio.wait_for(_collect(sessions, session_id, stop_after=3), 5)
-    assert await sessions.active(CONVERSATION_ID) == {"active": True, "sessionId": session_id,
+    assert await sessions.active(CONVERSATION_ID, LOCAL) == {"active": True, "sessionId": session_id,
                                                       "conversationId": CONVERSATION_ID}
     gate.set()
     await _until(lambda: CONVERSATION_ID not in store.active)
-    assert (await sessions.active(CONVERSATION_ID))["active"] is False
+    assert (await sessions.active(CONVERSATION_ID, LOCAL))["active"] is False
 
 
 async def test_crash_in_the_turn_becomes_an_error_event():
     sessions, store, _ = _sessions(fail=True)
-    session_id = await sessions.start(DTO)
+    session_id = await sessions.start(DTO, LOCAL)
     events = await asyncio.wait_for(_collect(sessions, session_id), 5)
     assert events[-1].event == "error" and json.loads(events[-1].data)["code"] == 500
 
@@ -213,13 +219,13 @@ async def test_unknown_or_invalid_sessions_are_error_events():
     invalid = await _collect(sessions, "../../etc")
     assert json.loads(invalid[0].data)["code"] == 400
     with pytest.raises(NotFoundError):
-        await sessions.cancel("22222222-2222-2222-2222-222222222222")
+        await sessions.cancel("22222222-2222-2222-2222-222222222222", LOCAL)
 
 
 async def test_dead_session_is_reported_as_interrupted(settings, monkeypatch):
     sessions, store, _ = _sessions()
     session_id = "33333333-3333-3333-3333-333333333333"
-    await store.create(session_id)
+    await store.create(session_id, LOCAL.owner_id)
     await store.append(session_id, "session", json.dumps({"sessionId": session_id}))
     store.metas[session_id]["heartbeat"] = time.time() - 120   # its process stopped two minutes ago
     monkeypatch.setattr("service.chat_session.READ_BLOCK_MS", 10)
@@ -231,7 +237,7 @@ async def test_dead_session_is_reported_as_interrupted(settings, monkeypatch):
 async def test_shutdown_stops_running_answers():
     gate = asyncio.Event()
     sessions, store, fake = _sessions(gate=gate)
-    session_id = await sessions.start(DTO)
+    session_id = await sessions.start(DTO, LOCAL)
     await asyncio.wait_for(_collect(sessions, session_id, stop_after=4), 5)
     await sessions.shutdown(timeout=5)
     assert fake.stopped is True and store.metas[session_id]["status"] == "cancelled"
@@ -252,10 +258,10 @@ CONTINUE = ChatAskDTO(question="And then?", conversationId=CONVERSATION_ID)
 async def test_second_turn_on_a_running_conversation_is_refused():
     gate = asyncio.Event()
     sessions, store, fake = _sessions(gate=gate)
-    first = await sessions.start(CONTINUE)
+    first = await sessions.start(CONTINUE, LOCAL)
     assert store.active[CONVERSATION_ID] == first
     with pytest.raises(ConflictError, match=TURN_RUNNING_MESSAGE):
-        await sessions.start(CONTINUE)
+        await sessions.start(CONTINUE, LOCAL)
     assert store.active[CONVERSATION_ID] == first          # the refused turn did not steal or clear the claim
     gate.set()
     await asyncio.wait_for(fake.finished.wait(), 5)
@@ -263,33 +269,33 @@ async def test_second_turn_on_a_running_conversation_is_refused():
 
 async def test_concurrent_claims_only_one_wins():
     sessions, store, _ = _sessions()
-    results = await asyncio.gather(sessions.claim(CONTINUE), sessions.claim(CONTINUE), return_exceptions=True)
+    results = await asyncio.gather(sessions.claim(CONTINUE, LOCAL), sessions.claim(CONTINUE, LOCAL), return_exceptions=True)
     assert sum(isinstance(r, ConflictError) for r in results) == 1
     assert sum(isinstance(r, str) for r in results) == 1
 
 
 async def test_claim_is_released_when_the_answer_completes():
     sessions, store, fake = _sessions()
-    session_id = await sessions.start(CONTINUE)
+    session_id = await sessions.start(CONTINUE, LOCAL)
     await asyncio.wait_for(_collect(sessions, session_id), 5)
     await _until(lambda: CONVERSATION_ID not in store.active)
-    await sessions.start(CONTINUE)                          # the next question is accepted
+    await sessions.start(CONTINUE, LOCAL)                          # the next question is accepted
 
 
 async def test_claim_is_released_when_the_answer_is_cancelled():
     gate = asyncio.Event()
     sessions, store, fake = _sessions(gate=gate)
-    session_id = await sessions.start(CONTINUE)
+    session_id = await sessions.start(CONTINUE, LOCAL)
     await _until(lambda: any(e.event == "delta" for e in store.events.get(session_id, [])))   # mid-answer
     assert store.active[CONVERSATION_ID] == session_id
-    await sessions.cancel(session_id)
+    await sessions.cancel(session_id, LOCAL)
     await asyncio.wait_for(fake.finished.wait(), 5)
     await _until(lambda: CONVERSATION_ID not in store.active)
 
 
 async def test_claim_is_released_when_the_turn_raises():
     sessions, store, fake = _sessions(fail=True)
-    session_id = await sessions.start(CONTINUE)
+    session_id = await sessions.start(CONTINUE, LOCAL)
     await asyncio.wait_for(_collect(sessions, session_id), 5)
     await _until(lambda: CONVERSATION_ID not in store.active)
 
@@ -297,12 +303,12 @@ async def test_claim_is_released_when_the_turn_raises():
 async def test_claim_is_released_when_the_session_cannot_be_created():
     sessions, store, _ = _sessions()
 
-    async def broken(session_id):
+    async def broken(session_id, owner_id):
         raise ConnectionError("redis down")
 
     store.create = broken
     with pytest.raises(ConnectionError):
-        await sessions.start(CONTINUE)
+        await sessions.start(CONTINUE, LOCAL)
     assert CONVERSATION_ID not in store.active
 
 
@@ -310,12 +316,12 @@ async def test_claim_of_a_dead_turn_can_be_taken_over():
     sessions, store, _ = _sessions()
     store.active[CONVERSATION_ID] = "dead-session"
     store.metas["dead-session"] = {"status": "running", "heartbeat": str(time.time() - 3600)}   # expired heartbeat
-    new_id = await sessions.claim(CONTINUE)
+    new_id = await sessions.claim(CONTINUE, LOCAL)
     assert store.active[CONVERSATION_ID] == new_id
 
     store.active[CONVERSATION_ID] = "finished-session"
     store.metas["finished-session"] = {"status": "done", "heartbeat": str(time.time())}
-    assert await sessions.claim(CONTINUE)
+    assert await sessions.claim(CONTINUE, LOCAL)
 
 
 async def test_live_claim_is_not_taken_over():
@@ -323,16 +329,16 @@ async def test_live_claim_is_not_taken_over():
     store.active[CONVERSATION_ID] = "live"
     store.metas["live"] = {"status": "running", "heartbeat": str(time.time())}
     with pytest.raises(ConflictError):
-        await sessions.claim(CONTINUE)
+        await sessions.claim(CONTINUE, LOCAL)
 
 
 async def test_new_conversations_and_bad_ids_need_no_claim():
     gate = asyncio.Event()
     sessions, store, fake = _sessions(gate=gate)
-    await sessions.claim(DTO)
-    await sessions.claim(ChatAskDTO(question="x", conversationId="not-a-uuid"))
+    await sessions.claim(DTO, LOCAL)
+    await sessions.claim(ChatAskDTO(question="x", conversationId="not-a-uuid"), LOCAL)
     assert store.active == {}
-    first = await sessions.start(DTO)                       # a new conversation is claimed once it exists
+    first = await sessions.start(DTO, LOCAL)                       # a new conversation is claimed once it exists
     await _until(lambda: store.active.get(CONVERSATION_ID) == first)
     gate.set()
     await _until(lambda: CONVERSATION_ID not in store.active)
@@ -350,6 +356,7 @@ async def test_stream_endpoint_answers_409_before_any_stream_starts(monkeypatch)
     app = FastAPI()
     app.include_router(chat_router.router, dependencies=[])
     app.dependency_overrides = {d.call: (lambda: None) for r in app.routes for d in getattr(getattr(r, "dependant", None), "dependencies", []) if d.call is not chat_router.claim_turn}
+    app.dependency_overrides[chat_router.require_user] = lambda: LOCAL
     store.active[CONVERSATION_ID] = "live"
     store.metas["live"] = {"status": "running", "heartbeat": str(time.time())}
 
@@ -365,21 +372,67 @@ async def test_leaked_claim_is_taken_over_after_the_stale_window(monkeypatch):
     from config.base import settings
 
     sessions, store, _ = _sessions()
-    leaked = await sessions.claim(CONTINUE)          # claimed, but start() never runs
+    leaked = await sessions.claim(CONTINUE, LOCAL)          # claimed, but start() never runs
     assert store.active[CONVERSATION_ID] == leaked and store.metas[leaked]["status"] == "running"
     with pytest.raises(ConflictError):
-        await sessions.claim(CONTINUE)               # still within the heartbeat window
+        await sessions.claim(CONTINUE, LOCAL)               # still within the heartbeat window
     monkeypatch.setattr(settings, "CHAT_SESSION_STALE_SECONDS", 0)
     store.metas[leaked]["heartbeat"] = str(time.time() - 1)
     assert store.active[CONVERSATION_ID] == leaked
-    taker = await sessions.claim(CONTINUE)
+    taker = await sessions.claim(CONTINUE, LOCAL)
     assert store.active[CONVERSATION_ID] == taker
 
 
 async def test_start_after_claim_keeps_the_claimed_session_meta():
     sessions, store, fake = _sessions()
-    session_id = await sessions.claim(CONTINUE)
+    session_id = await sessions.claim(CONTINUE, LOCAL)
     created = store.metas[session_id]["created_at"]
-    await sessions.start(CONTINUE, session_id)
+    await sessions.start(CONTINUE, LOCAL, session_id)
     await asyncio.wait_for(_collect(sessions, session_id), 5)
     assert store.metas[session_id]["created_at"] == created
+
+
+# ── ownership: sessions and claims never cross users ─────────────────
+
+ALICE = Principal(subject="alice", kind="user")
+BOB = Principal(subject="bob", kind="user")
+
+
+async def test_another_users_session_is_unknown_to_resume_and_cancel():
+    gate = asyncio.Event()
+    sessions, store, fake = _sessions(gate=gate)
+    fake.owners[CONVERSATION_ID] = ALICE.owner_id
+    session_id = await sessions.start(CONTINUE, ALICE)
+    assert store.metas[session_id]["owner"] == "alice"
+
+    foreign = await asyncio.wait_for(_collect(sessions, session_id, owner=BOB), 5)
+    assert [e.event for e in foreign] == ["error"] and json.loads(foreign[0].data)["code"] == 404
+    with pytest.raises(NotFoundError):
+        await sessions.cancel(session_id, BOB)
+    with pytest.raises(NotFoundError):
+        await sessions.active(CONVERSATION_ID, BOB)
+    assert store.metas[session_id]["status"] == "running" and session_id not in store.cancels
+
+    assert (await sessions.active(CONVERSATION_ID, ALICE))["sessionId"] == session_id
+    own = await asyncio.wait_for(_collect(sessions, session_id, owner=ALICE, stop_after=1), 5)
+    assert own[0].event == "session"
+    gate.set()
+    await asyncio.wait_for(fake.finished.wait(), 5)
+
+
+async def test_claiming_another_users_conversation_is_not_found_and_holds_nothing():
+    sessions, store, fake = _sessions()
+    fake.owners[CONVERSATION_ID] = ALICE.owner_id
+    with pytest.raises(NotFoundError):
+        await sessions.claim(CONTINUE, BOB)
+    assert store.active == {} and store.running == set() and store.metas == {}
+
+
+async def test_local_owner_sees_sessions_without_an_owner_field():
+    # Sessions started before ownership existed carry no owner: like legacy rows, only "local" sees them.
+    sessions, store, _ = _sessions()
+    session_id = "44444444-4444-4444-4444-444444444444"
+    store.metas[session_id] = {"status": "done", "heartbeat": str(time.time())}
+    await store.append(session_id, "done", json.dumps({"answer": "x"}))
+    assert [e.event for e in await _collect(sessions, session_id)] == ["done"]
+    assert json.loads((await _collect(sessions, session_id, owner=ALICE))[0].data)["code"] == 404

@@ -4,6 +4,7 @@ import asyncio
 import uuid
 from datetime import datetime, timezone
 
+from auth.principal import LOCAL, Principal
 from dto.chat import ChatAskDTO
 from service.conversation import Conversation, history_from, make_title, message_to_api
 from service.rag import ChatTurn, Rag, build_user_prompt, format_history
@@ -23,14 +24,16 @@ class MemoryRepository:
     def __init__(self):
         self.conversations, self.rows = {}, []
 
-    def create(self, title, book_ids=None):
+    def create(self, title, book_ids=None, *, owner_id):
         now = datetime.now(timezone.utc)
-        row = {"id": uuid.uuid4(), "title": title, "book_ids": list(book_ids or []), "created_at": now, "updated_at": now}
+        row = {"id": uuid.uuid4(), "title": title, "book_ids": list(book_ids or []), "created_at": now,
+               "updated_at": now, "owner_id": owner_id}
         self.conversations[str(row["id"])] = row
         return row
 
-    def get(self, conversation_id):
-        return self.conversations.get(str(conversation_id))
+    def get(self, conversation_id, owner):
+        row = self.conversations.get(str(conversation_id))
+        return row if row and owner.can_see(row["owner_id"]) else None
 
     def add_message(self, conversation_id, fields):
         row = {"id": uuid.uuid4(), "conversation_id": str(conversation_id), "mode": None, "grounded": None,
@@ -76,8 +79,8 @@ def _service(pieces, **kwargs):
     return Conversation(repository=repo, rag=rag), repo, search, prompts
 
 
-async def _turn(service, question, conversation_id=None):
-    return [e async for e in service.stream_turn(ChatAskDTO(question=question, conversationId=conversation_id))]
+async def _turn(service, question, conversation_id=None, owner=LOCAL):
+    return [e async for e in service.stream_turn(ChatAskDTO(question=question, conversationId=conversation_id), owner)]
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -165,7 +168,7 @@ async def test_provider_error_is_saved_with_partial_text():
 
 async def test_disconnect_mid_answer_saves_stopped_partial():
     service, repo, _, _ = _service(["The lifeboat ", "never sent"], pause=True)
-    stream = service.stream_turn(ChatAskDTO(question="Who rescued the crew?"))
+    stream = service.stream_turn(ChatAskDTO(question="Who rescued the crew?"), LOCAL)
     async for name, _ in stream:
         if name == "delta":
             break  # like the browser pressing Stop after the first words
@@ -180,6 +183,19 @@ async def test_unknown_conversation_is_an_error_event():
     events = await _turn(service, "Q?", str(uuid.uuid4()))
     assert events == [("error", {"message": "Conversation not found.", "code": 404})]
     assert repo.rows == []
+
+
+async def test_turn_is_owned_by_the_caller_and_others_cannot_continue_it():
+    alice, bob = Principal(subject="alice", kind="user"), Principal(subject="bob", kind="user")
+    service, repo, _, _ = _service(["Answer [1]."])
+    first = await _turn(service, "Who kept the Saltmere light?", owner=alice)
+    conversation_id = first[0][1]["id"]
+    assert repo.conversations[conversation_id]["owner_id"] == "alice"
+
+    events = await _turn(service, "And then?", conversation_id, owner=bob)
+    assert events == [("error", {"message": "Conversation not found.", "code": 404})]
+    assert len(repo.messages(conversation_id)) == 2          # bob's question was not added
+    assert (await _turn(service, "And then?", conversation_id, owner=alice))[-1][0] == "done"
 
 
 def test_message_shapes():

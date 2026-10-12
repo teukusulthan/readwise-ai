@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Accounts: per-user conversations, service token (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/auth/principal.py`, `apps/backend/util/helper.py`, `apps/backend/middleware/route_limits.py`, `apps/backend/migrations/004_conversation_owner.sql`, `apps/backend/service/{conversation,conversation_repository,chat_session,auth,user}.py`, `apps/backend/router/{chat,conversation,auth}.py`, `apps/backend/dto/auth.py`, `apps/backend/config/base.py`, `apps/backend/.env.example`, `apps/backend/scripts/seed_gutenberg.py`, tests `tests/unit/{test_principal,test_chat_session,test_conversation,test_rate_limits}.py`, `tests/integration/{test_accounts,test_chat_session_redis,test_conversation_api}.py`, `docs/architecture.md`, `docs/api-spec.md`, `docs/api/auth.md`, `docs/database-schema.md`
+> The router auth dependency (`router_param_builder`) is now `auth/principal.current_principal`: with `BE_JWT_ACTIVE=true` a request is authorised by an `X-Internal-Token` equal to the new `BE_INTERNAL_TOKEN` (`hmac.compare_digest`; empty = disabled, else ≥ 32 chars; a wrong value is 403) as the service principal `service:internal`, or by the usual JWT (bearer or `token` cookie) as the user of its `user_id` claim; with JWT off every caller is the owner `local`. Migration 004 adds `conversations.owner_id` (+ index); every conversation query is scoped to the caller and another user's conversation is a 404 on `/conversation/*`, `/chat/active` and `POST /chat/stream` (checked before the claim, so nobody can keep another user's conversation busy). Chat sessions record their `owner`; resume/cancel of a foreign session behave like an unknown one. Legacy `NULL`-owner rows are visible to `local` only. The service principal reads/writes the shared catalog and uses search and `/chat/ask`, but gets 403 on conversation routes; route rate limits key it as `service:internal`. `BE_AUTH_EMAIL_VERIFICATION` (default true = unchanged OTP/SMTP/Proofy flow; false = development: `/auth/register` creates the account at once). Fixed two boilerplate bugs found by the new integration tests: every login failed (`User.get_user_status_by_id` read a collection that was never configured) and `DELETE /auth/logout` failed without the access cookie. `scripts/seed_gutenberg.py --internal-token`.
+
 ### 2026-10-12 · Retrieval keeps several sections in the top k (no sprint) · ✅ Done
 
 **Event:** Files modified

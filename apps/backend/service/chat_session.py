@@ -15,7 +15,8 @@ POST /chat/stream/{session_id}/cancel stops generation.
 
 Redis keys (expire after CHAT_SESSION_TTL_SECONDS, refreshed while the session runs):
   chat:session:{id}:events        STREAM  entries {event, data(json)}; entry id = SSE event id
-  chat:session:{id}               HASH    status running|done|error|cancelled, conversation_id, heartbeat, created_at
+  chat:session:{id}               HASH    status running|done|error|cancelled, conversation_id, heartbeat, created_at,
+                                          owner (the principal that started it; see "Ownership" below)
   chat:session:{id}:cancel        STRING  set by cancel(); the runner polls it (works across workers)
   chat:sessions:running           ZSET    session ids (score = start time) of turns that count toward
                                           CHAT_MAX_CONCURRENT_SESSIONS; entries whose session is no longer
@@ -26,6 +27,10 @@ Redis keys (expire after CHAT_SESSION_TTL_SECONDS, refreshed while the session r
 A runner refreshes `heartbeat` every few seconds. A reader that finds a "running" session
 with a stale heartbeat (the process died) reports the answer as interrupted instead of
 waiting forever.
+
+Ownership: conversations are personal (auth/principal.py). claim() and active() check that the
+caller owns the conversation (another owner's is "not found"), and every session records its
+owner: resume and cancel of someone else's session behave exactly like an unknown session.
 """
 
 import asyncio
@@ -39,6 +44,7 @@ from typing import AsyncIterator, Optional
 
 from loguru import logger
 
+from auth.principal import Principal
 from config.base import settings
 from dto.chat import ChatAskDTO
 from service import Services
@@ -120,10 +126,11 @@ class RedisSessionStore:
     def _active_key(conversation_id: str) -> str:
         return f"chat:conversation:{conversation_id}:active"
 
-    async def create(self, session_id: str):
+    async def create(self, session_id: str, owner_id: str):
         now = time.time()
         async with self.client.pipeline(transaction=True) as pipe:
-            pipe.hset(self._meta_key(session_id), mapping={"status": "running", "created_at": now, "heartbeat": now})
+            pipe.hset(self._meta_key(session_id),
+                      mapping={"status": "running", "created_at": now, "heartbeat": now, "owner": owner_id})
             pipe.expire(self._meta_key(session_id), self.ttl)
             await pipe.execute()
 
@@ -216,24 +223,27 @@ class ChatSessions:
         except ValueError:
             return None  # the turn itself reports the bad id
 
-    async def claim(self, dto: ChatAskDTO) -> str:
+    async def claim(self, dto: ChatAskDTO, owner: Principal) -> str:
         """
         Reserve the conversation this turn continues, before any stream starts, so a second turn gets
         a normal HTTP 409 instead of interleaving messages. Returns the new session id to pass to
         start(). A new conversation needs no claim (it is claimed once it exists). A claim whose
-        session died (finished, or heartbeat stale) is taken over.
+        session died (finished, or heartbeat stale) is taken over. Someone else's conversation is
+        NotFoundError (so nobody can hold another user's conversation busy).
         """
+        conversation_id = self._requested_conversation(dto)
+        if conversation_id:
+            await asyncio.to_thread(self.conversations.ensure_owned, conversation_id, owner)
         cap = settings.CHAT_MAX_CONCURRENT_SESSIONS
         # Soft cap: the check and the registration below are not atomic, so a burst of simultaneous
         # claims can overshoot it by a few; it exists to bound load, not to be exact.
         if cap > 0 and await self.store.count_running() >= cap:
             raise TooManyRequestsError(BUSY_MESSAGE, retry_after=BUSY_RETRY_AFTER_SECONDS)
         session_id = str(uuid.uuid4())
-        conversation_id = self._requested_conversation(dto)
         # Meta (status + heartbeat) first: a claim leaked before start() runs (client gone, process
         # died) then has no live heartbeat and is taken over / stops counting after
         # CHAT_SESSION_STALE_SECONDS.
-        await self.store.create(session_id)
+        await self.store.create(session_id, owner.owner_id)
         await self.store.register_running(session_id)
         if conversation_id and not await self._claim(conversation_id, session_id):
             await self._unregister(session_id)
@@ -254,34 +264,34 @@ class ChatSessions:
             return await self.store.replace_active(conversation_id, holder, session_id)
         return False
 
-    async def start(self, dto: ChatAskDTO, session_id: Optional[str] = None) -> str:
+    async def start(self, dto: ChatAskDTO, owner: Principal, session_id: Optional[str] = None) -> str:
         """
         Create the session and start answering in the background. Returns the session id.
         Pass the id from claim() when the conversation was already claimed; otherwise it is claimed here.
         """
         if session_id is None:
-            session_id = await self.claim(dto)
+            session_id = await self.claim(dto, owner)
         try:
             if not await self.store.meta(session_id):  # claim() already created it for a continued conversation
-                await self.store.create(session_id)
+                await self.store.create(session_id, owner.owner_id)
             await self.store.append(session_id, "session", json.dumps({"sessionId": session_id}))
         except BaseException:
             await self._release(self._requested_conversation(dto), session_id)
             await self._unregister(session_id)
             raise
-        task = asyncio.create_task(self._run(session_id, dto), name=f"chat-session-{session_id}")
+        task = asyncio.create_task(self._run(session_id, dto, owner), name=f"chat-session-{session_id}")
         self._tasks[session_id] = task
         task.add_done_callback(lambda _task: self._tasks.pop(session_id, None))
         return session_id
 
-    async def _run(self, session_id: str, dto: ChatAskDTO):
+    async def _run(self, session_id: str, dto: ChatAskDTO, owner: Principal):
         watcher = asyncio.create_task(self._watch(session_id, asyncio.current_task()))
         requested = self._requested_conversation(dto)
         conversation_id, status = None, "error"
         try:
             # aclosing: if we are cancelled mid-append, the turn generator is closed too,
             # so it saves the partial answer as "stopped".
-            async with aclosing(self.conversations.stream_turn(dto)) as turn:
+            async with aclosing(self.conversations.stream_turn(dto, owner)) as turn:
                 async for event, data in turn:
                     if event == "conversation":
                         conversation_id = data["id"]
@@ -340,10 +350,10 @@ class ChatSessions:
         except Exception:
             logger.exception("Chat session {id}: could not record {event}", id=session_id, event=event)
 
-    async def cancel(self, session_id) -> dict:
+    async def cancel(self, session_id, owner: Principal) -> dict:
         session_id = parse_session_id(session_id)
         meta = await self.store.meta(session_id)
-        if not meta:
+        if not meta or not owner.can_see(meta.get("owner")):
             raise NotFoundError("Chat session not found or expired.")
         if meta.get("status") != "running":
             return {"sessionId": session_id, "cancelled": False, "status": meta.get("status")}
@@ -363,14 +373,16 @@ class ChatSessions:
 
     # ── reading side ────────────────────────────────────────────────
 
-    async def events(self, session_id, after: Optional[str] = None) -> AsyncIterator[StoredEvent]:
+    async def events(self, session_id, after: Optional[str] = None, *,
+                     owner: Principal) -> AsyncIterator[StoredEvent]:
         """Every event after `after` ('0' = all), then live ones, until the session ends."""
         try:
             session_id, after = parse_session_id(session_id), parse_event_id(after)
         except ValueError as error:
             yield _synthetic("error", {"message": str(error), "code": 400})
             return
-        if not await self.store.meta(session_id):
+        meta = await self.store.meta(session_id)
+        if not meta or not owner.can_see(meta.get("owner")):
             yield _synthetic("error", {"message": "This answer session has expired or does not exist.", "code": 404})
             return
 
@@ -398,10 +410,12 @@ class ChatSessions:
                                                       "Please ask again.", "code": 503})
                 return
 
-    async def active(self, conversation_id) -> dict:
+    async def active(self, conversation_id, owner: Principal) -> dict:
         """Whether an answer of this conversation is still being generated (to re-attach after a reload)."""
         conversation_id = str(parse_conversation_id(conversation_id))
+        await asyncio.to_thread(self.conversations.ensure_owned, conversation_id, owner)
         session_id = await self.store.get_active(conversation_id)
-        if session_id and (await self.store.meta(session_id)).get("status") == "running":
+        meta = await self.store.meta(session_id) if session_id else {}
+        if meta.get("status") == "running" and owner.can_see(meta.get("owner")):
             return {"active": True, "sessionId": session_id, "conversationId": conversation_id}
         return {"active": False, "sessionId": "", "conversationId": conversation_id}

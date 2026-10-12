@@ -703,6 +703,8 @@ Jika Anda memiliki pertanyaan atau memerlukan bantuan lebih lanjut, jangan ragu 
             raise Exception("OTP is Invalid or Expired")
 
     def register(self, dto: RegisterDTO):
+            if not settings.AUTH_EMAIL_VERIFICATION:
+                return self._register_without_verification(dto)
             smtp = {
                 "smtpEmail": self.smtp_email,
                 "smtpHost": self.smtp_host,
@@ -767,7 +769,7 @@ Jika Anda memiliki pertanyaan atau memerlukan bantuan lebih lanjut, jangan ragu 
                             msg=msg.as_string(),
                         )
 
-                        return {"message": "Email register sent"}
+                        return {"message": "Email register sent", "verificationRequired": True}
                     except:
                         raise Exception(f"Fail send email register")
                     finally:
@@ -776,6 +778,26 @@ Jika Anda memiliki pertanyaan atau memerlukan bantuan lebih lanjut, jangan ragu 
                     raise Exception(
                         f"SMTP of application with email {smtp.smtpEmail} is invalid"
                     )
+
+    def _register_without_verification(self, dto: RegisterDTO) -> dict:
+        """BE_AUTH_EMAIL_VERIFICATION=false (development only): create the active account at once, no mail."""
+        if self.collection.find_one({"email": dto.email}):
+            raise Exception("Account already exist")
+        if self.collection.find_one({"username": dto.username}):
+            raise Exception("Username already exist")
+        if self.collection.find_one({"phone": dto.phone}):
+            raise Exception("Phone already exist")
+        user = self.user_service.add(UserDTO(
+            fullname=dto.fullname,
+            username=dto.username,
+            email=dto.email,
+            phone=dto.phone,
+            password=dto.password,
+            status="active",
+            multiLogin=True,
+            emailVerified=False,
+        ))
+        return {"message": "Account created", "verificationRequired": False, "id": user["id"]}
 
     def verify_register_otp(self, otp: str):
         redis_data = self.redis.get(

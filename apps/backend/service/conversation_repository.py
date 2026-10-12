@@ -21,6 +21,14 @@ def parse_conversation_id(value) -> uuid.UUID:
         raise ValueError(f"Invalid conversation id: {value!r}") from None
 
 
+# Rows of the caller: its own, plus legacy rows (owner NULL) when it is the no-login "local" owner.
+_OWNED = "(owner_id = %(owner)s OR (%(legacy)s AND owner_id IS NULL))"
+
+
+def _owner_params(owner) -> dict:
+    return {"owner": owner.owner_id, "legacy": bool(owner.sees_legacy)}
+
+
 def _uuid_list(values: Optional[Iterable]) -> list[uuid.UUID]:
     return [uuid.UUID(str(v)) for v in values or []]
 
@@ -34,42 +42,47 @@ class ConversationRepository:
         return self._pool or Services.postgres()
 
     # ── conversations ────────────────────────────────────────────────
+    # Every conversation-level read/write is scoped to an owner (auth/principal.Principal: `owner_id`,
+    # `sees_legacy`). Another owner's conversation behaves exactly like a missing one.
 
-    def create(self, title: str, book_ids: Optional[Iterable] = None) -> dict:
+    def create(self, title: str, book_ids: Optional[Iterable] = None, *, owner_id: str) -> dict:
         with self.pool.connection() as conn:
             return conn.execute(
-                "INSERT INTO conversations (title, book_ids) VALUES (%s, %s) RETURNING *",
-                (title, _uuid_list(book_ids)),
+                "INSERT INTO conversations (title, book_ids, owner_id) VALUES (%s, %s, %s) RETURNING *",
+                (title, _uuid_list(book_ids), owner_id),
             ).fetchone()
 
-    def get(self, conversation_id) -> Optional[dict]:
+    def get(self, conversation_id, owner) -> Optional[dict]:
         with self.pool.connection() as conn:
             return conn.execute(
-                "SELECT * FROM conversations WHERE id = %s", (parse_conversation_id(conversation_id),)
+                f"SELECT * FROM conversations WHERE id = %(id)s AND {_OWNED}",
+                {"id": parse_conversation_id(conversation_id), **_owner_params(owner)},
             ).fetchone()
 
-    def list_recent(self, page: int = 1, size: int = 50) -> tuple[list[dict], int]:
+    def list_recent(self, owner, page: int = 1, size: int = 50) -> tuple[list[dict], int]:
+        params = {**_owner_params(owner), "limit": size, "offset": (page - 1) * size}
         with self.pool.connection() as conn:
             rows = conn.execute(
                 "SELECT c.*, (SELECT count(*) FROM conversation_messages m WHERE m.conversation_id = c.id)"
-                " AS message_count FROM conversations c ORDER BY c.updated_at DESC, c.id"
-                " LIMIT %s OFFSET %s",
-                (size, (page - 1) * size),
+                f" AS message_count FROM conversations c WHERE {_OWNED}"
+                " ORDER BY c.updated_at DESC, c.id LIMIT %(limit)s OFFSET %(offset)s",
+                params,
             ).fetchall()
-            total = conn.execute("SELECT count(*) AS total FROM conversations").fetchone()["total"]
+            total = conn.execute(f"SELECT count(*) AS total FROM conversations WHERE {_OWNED}", params).fetchone()["total"]
         return rows, total
 
-    def rename(self, conversation_id, title: str) -> Optional[dict]:
+    def rename(self, conversation_id, title: str, owner) -> Optional[dict]:
         with self.pool.connection() as conn:
             return conn.execute(
-                "UPDATE conversations SET title = %s, updated_at = now() WHERE id = %s RETURNING *",
-                (title, parse_conversation_id(conversation_id)),
+                f"UPDATE conversations SET title = %(title)s, updated_at = now() WHERE id = %(id)s AND {_OWNED} RETURNING *",
+                {"title": title, "id": parse_conversation_id(conversation_id), **_owner_params(owner)},
             ).fetchone()
 
-    def delete(self, conversation_id) -> Optional[dict]:
+    def delete(self, conversation_id, owner) -> Optional[dict]:
         with self.pool.connection() as conn:
             return conn.execute(
-                "DELETE FROM conversations WHERE id = %s RETURNING *", (parse_conversation_id(conversation_id),)
+                f"DELETE FROM conversations WHERE id = %(id)s AND {_OWNED} RETURNING *",
+                {"id": parse_conversation_id(conversation_id), **_owner_params(owner)},
             ).fetchone()
 
     # ── messages ─────────────────────────────────────────────────────

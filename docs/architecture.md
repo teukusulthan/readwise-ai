@@ -193,8 +193,8 @@ POST /chat/stream (service/conversation.py: Conversation.stream_turn)
 GET /conversation/get-all · GET /conversation/get-one · PUT /conversation/rename · DELETE /conversation/delete
 ```
 
-Postgres tables `conversations` + `conversation_messages` (`docs/database-schema.md`). No users yet, so every
-visitor shares one history (like the catalog). The web keeps the live turn locally and swaps in the saved copy
+Postgres tables `conversations` + `conversation_messages` (`docs/database-schema.md`). Conversations are
+**per user** (`conversations.owner_id`, see §4.7); the book catalog stays one shared team library. The web keeps the live turn locally and swaps in the saved copy
 when the refetched conversation contains it (`utils/chat-thread.ts: pendingVisibility`), so nothing flickers.
 
 ### 4.6 Resumable answers (Redis chat sessions)
@@ -221,6 +221,30 @@ Web specifics: leaving a conversation marks its cached thread stale and every vi
 with `cancelled` (or ends at all; 5 s fallback). Asking again while the previous turn is only drawn locally refetches
 the thread first so that turn stays visible. A frame whose data is not a JSON object is skipped with a console
 warning, and `streamSse` cancels the body reader on every exit (end, abort, error), which closes the connection.
+
+### 4.7 Accounts and the service token
+
+```
+BE_JWT_ACTIVE=false  → no login: every caller is the owner "local" (sees its rows + legacy owner-NULL rows)
+BE_JWT_ACTIVE=true   → router dependency auth/principal.py: current_principal
+    X-Internal-Token == BE_INTERNAL_TOKEN (hmac.compare_digest) → "service:internal"  (wrong value → 403)
+    else access token (Bearer header or HttpOnly `token` cookie, JWTBearer) → user = JWT `user_id` claim
+web: /login, /register (no app shell) → POST /auth/login sets HttpOnly `token` + `refresh_token` cookies,
+     body = {user}; 401 → GET /auth/refresh once → else /login?next=<path>   (only with VITE_AUTH_ENABLED=true)
+```
+
+- **Shared:** catalog, upload, search, `/chat/ask` — any principal, including the service token (the seed script's
+  `--internal-token` uses it to add and upload books).
+- **Personal:** `/conversation/*`, `/chat/stream`, resume, cancel, `/chat/active`. Rows are filtered by
+  `owner_id`; another user's conversation answers 404 (existence not revealed), and continuing it is refused with
+  404 before any claim, so nobody can keep someone else's conversation busy. Each Redis chat session stores its
+  `owner`: resume/cancel of a foreign session look like an unknown session. The service principal gets 403.
+- **Legacy rows** (created before migration 004, `owner_id NULL`) are visible only to "local": the no-login setup keeps
+  its history, real users never see them once JWT is on. Rows created without login are owned by "local" and
+  likewise stay invisible to real users.
+- Registration: `/auth/register` needs SMTP + Proofy by default (OTP mail, then `POST /auth/verification`).
+  `BE_AUTH_EMAIL_VERIFICATION=false` (development only) creates the account at once.
+- Rate limits key the service principal as `service:internal` (valid token only), users as `user:<id>`, else IP.
 
 ### 4.4 Catalog
 
@@ -330,8 +354,9 @@ deleted book's points are never returned; the worker drops points of a book dele
 - Agno returns provider errors as a normal result with `status=ERROR`; `service/llm.py` converts that into a 503 with a short message (bad key / rate limit / unknown model) and logs the details.
 - **Cross-language questions are weak**: an Indonesian question about an English book ranked the wrong chapter first.
 - **Scanned PDFs** are parsed twice: first with OCR off (fast), then — only when that yields no text — once more with OCR on (`BE_DOCLING_OCR_FALLBACK`, default true). OCR is much slower; if it also finds nothing the book fails with "No text could be extracted, even with OCR. …". `BE_DOCLING_DO_OCR=true` turns OCR on for every book (no fallback). **The OCR pass needs a working Docling OCR engine:** with the current lock (docling 2.129.0 + rapidocr 3.10.0, which no longer exposes `PP_OCRV6_LANGS`) Docling finds no engine, so the startup-cached probe reports "no OCR engine", the OCR pass is skipped and scanned PDFs still fail with the original message. rapidocr 3.9.x works with docling, but resolving it upgrades numpy/pandas/opencv, so that pin is a separate dependency decision. A failed probe (e.g. an OCR model download error) is cached too: restart to probe again.
-- **No login page**: local `.env` runs with `BE_JWT_ACTIVE=false`. The book endpoints use the standard JWT dependency, so enabling it protects them once a login UI exists.
-- **One shared library** — no per-user ownership.
+- **Accounts are opt-in**: local `.env` runs with `BE_JWT_ACTIVE=false` and the web with `VITE_AUTH_ENABLED=false` (no login, owner "local"). Turn both on together (§4.7). The auth cookies are `Secure`: browsers accept them on `http://localhost`, but a plain-HTTP deployment on another host needs HTTPS.
+- **One shared library** — books have no owner; only conversations are per user. No roles: every signed-in user can add, edit and delete books.
+- Registration with the default email verification needs working SMTP and a Proofy key; without them use `BE_AUTH_EMAIL_VERIFICATION=false` in development only.
 - 🛠 Not yet: MCP server, Docker images for the apps, S3 storage.
 
 ---
@@ -364,7 +389,7 @@ uv run scripts/seed_gutenberg.py --only 11 84  # just some Gutenberg ids
 images and old page markers, prints a text PDF with headless Chrome, then uses the normal API (`/book/add` with
 title, authors, year, subjects, cover → `/book/upload`). So seeding exercises exactly the same path as a user upload.
 Downloads and PDFs are cached in `storage/gutenberg/` (git-ignored); re-running skips books that already have a document.
-Use `--api` for another backend URL and `--token` when JWT is on.
+Use `--api` for another backend URL and, when JWT is on, `--token <access token>` or `--internal-token <BE_INTERNAL_TOKEN>`.
 
 ### Startup defaults
 

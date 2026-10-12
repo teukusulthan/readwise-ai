@@ -3,9 +3,9 @@ Per-route rate limits (FastAPI dependencies), on top of the global per-IP limite
 
     @router.post("/query", dependencies=[Depends(route_limit("search"))])
 
-A fixed one-minute window per (route group, client) in Redis. The client is the authenticated user when a
-valid access token is present (so users behind one proxy or NAT do not share a budget), else the client IP
-(util/client_ip.py). A budget of 0 disables the group. Over budget -> TooManyRequestsError -> HTTP 429 with
+A fixed one-minute window per (route group, client) in Redis. The client is the service principal when a
+valid `X-Internal-Token` is present, else the authenticated user when a valid access token is present (so
+users behind one proxy or NAT do not share a budget), else the client IP (util/client_ip.py). A budget of 0 disables the group. Over budget -> TooManyRequestsError -> HTTP 429 with
 the error envelope and a Retry-After header. Fails open when Redis is unreachable, like the global limiter.
 """
 
@@ -16,6 +16,7 @@ from fastapi import Request
 from loguru import logger
 
 from auth.auth_handler import decode_jwt
+from auth.principal import SERVICE_SUBJECT, internal_token_status
 from config.base import settings
 from service import Services
 from util.client_ip import client_ip
@@ -39,7 +40,11 @@ def _token(request: Request):
 
 
 def client_key(request: Request) -> str:
-    """`user:<id>` for a valid access token (only while BE_JWT_ACTIVE), else `ip:<address>`."""
+    """`service:internal` for a valid internal token, `user:<id>` for a valid access token (only while
+    BE_JWT_ACTIVE), else `ip:<address>`. An invalid internal token is ignored here (the auth dependency
+    refuses the request)."""
+    if internal_token_status(request):
+        return SERVICE_SUBJECT
     token = _token(request) if settings.JWT_ACTIVE else None  # unsigned-key tokens are forgeable when JWT is off
     if token:
         try:

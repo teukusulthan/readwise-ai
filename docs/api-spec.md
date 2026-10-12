@@ -26,10 +26,35 @@ Authorization: Bearer <token>
 
 | Security Scheme | Description |
 |---|---|
-| `JWTBearer` | Standard JWT for protected endpoints |
+| `JWTBearer` | Standard JWT for protected endpoints — or the service token (`X-Internal-Token`), see below |
 | `JWTRefresh` | JWT refresh for token refresh & validate |
+| `User` | `JWTBearer` that must be a user: the service principal gets `403` (personal data: conversations, chat sessions) |
 
-> Tokens are also stored in HttpOnly cookies (`token`, `refresh_token`) as a fallback.
+> Tokens are also stored in HttpOnly cookies (`token`, `refresh_token`) as a fallback. `POST /auth/login` returns
+> only `{ user: {id, fullname, username, email, …} }` in the body; the tokens are set as `Secure`, `HttpOnly`,
+> `SameSite=Lax` cookies. `GET /auth/refresh` (refresh cookie) issues new ones; `DELETE /auth/logout` clears both
+> (it needs only the refresh cookie).
+
+Auth is **opt-in**: with `BE_JWT_ACTIVE=false` no endpoint checks credentials and every caller is the owner `"local"`.
+With `BE_JWT_ACTIVE=true` (`auth/principal.py`, the router dependency of every `JWTBearer` route):
+
+| Credential | Principal | Access |
+|---|---|---|
+| `X-Internal-Token: <BE_INTERNAL_TOKEN>` (constant-time compare; empty setting = disabled) | `service:internal` | Shared catalog, upload, search, `/chat/ask`. `403` on `User` routes. A wrong or disabled token is `403` even if a JWT is also sent |
+| Access token (Bearer or `token` cookie) | the user (`user_id` claim) | Everything; conversations are filtered to the caller's own |
+| none / expired | — | `401` (`403` for an invalid or refresh token) |
+
+**Per-user conversations.** `conversations.owner_id` = the caller (user id, or `"local"` without JWT). Another
+user's conversation answers `404` on every `/conversation/*` route, on `GET /chat/active`, and on
+`POST /chat/stream` with its `conversationId` (a JSON 404 before any stream); another user's chat session is
+reported like an unknown one (resume: `error` event code 404; cancel: `404`). Conversations created before
+accounts existed (`owner_id` NULL) belong to `"local"` only. The book catalog is shared by everyone.
+
+**Registration.** `POST /auth/register` `{ fullname?, username, email, password, phone }`. Default
+(`BE_AUTH_EMAIL_VERIFICATION=true`): MX + Proofy check, an OTP is mailed over SMTP →
+`{ message, verificationRequired: true }`; confirm with `POST /auth/verification?otp=`. Development
+(`BE_AUTH_EMAIL_VERIFICATION=false`): the account is created at once → `{ message, verificationRequired: false, id }`.
+`400` with the message when the email, username or phone is taken.
 
 ---
 
@@ -165,14 +190,14 @@ If you need to use these modules, you can access the documentation for the Auth,
 | POST | `/book/import` | Import metadata from Open Library by ISBN | JWTBearer |
 | POST | `/search/query` | Semantic search over indexed books → passages with section/page | JWTBearer |
 | POST | `/chat/ask` | Grounded answer with numbered sources, or an explicit "not enough information". Stateless (nothing saved) | JWTBearer |
-| POST | `/chat/stream` | One **saved** chat turn, streamed as Server-Sent Events (`conversation` → `status` → `sources` → `delta`… → `done` \| `error`); optional `conversationId` continues a conversation | JWTBearer |
-| GET | `/chat/stream/{sessionId}` | Re-attach to an answer session: replays events after `?after=<event id>` (or `Last-Event-ID`), then streams live ones until it ends | JWTBearer |
-| POST | `/chat/stream/{sessionId}/cancel` | Stop generating (a disconnect no longer does); the partial answer is saved as `stopped` | JWTBearer |
-| GET | `/chat/active` | `?conversationId=` → `{active, sessionId}`: an answer of this conversation is still being generated (re-attach after a reload) | JWTBearer |
-| GET | `/conversation/get-all` | Saved conversations, most recently active first (`?page=&size=`, max 100) | JWTBearer |
-| GET | `/conversation/get-one` | One conversation with all messages (`?id=`) | JWTBearer |
-| PUT | `/conversation/rename` | Rename (`{ id, title }`, 1–120 chars) | JWTBearer |
-| DELETE | `/conversation/delete` | Delete a conversation and its messages (`?id=`) | JWTBearer |
+| POST | `/chat/stream` | One **saved** chat turn, streamed as Server-Sent Events (`conversation` → `status` → `sources` → `delta`… → `done` \| `error`); optional `conversationId` continues a conversation | User |
+| GET | `/chat/stream/{sessionId}` | Re-attach to an answer session: replays events after `?after=<event id>` (or `Last-Event-ID`), then streams live ones until it ends | User |
+| POST | `/chat/stream/{sessionId}/cancel` | Stop generating (a disconnect no longer does); the partial answer is saved as `stopped` | User |
+| GET | `/chat/active` | `?conversationId=` → `{active, sessionId}`: an answer of this conversation is still being generated (re-attach after a reload) | User |
+| GET | `/conversation/get-all` | The caller's saved conversations, most recently active first (`?page=&size=`, max 100) | User |
+| GET | `/conversation/get-one` | One conversation with all messages (`?id=`) | User |
+| PUT | `/conversation/rename` | Rename (`{ id, title }`, 1–120 chars) | User |
+| DELETE | `/conversation/delete` | Delete a conversation and its messages (`?id=`) | User |
 
 ---
 
@@ -233,7 +258,7 @@ Failures use this same envelope as the **top-level** body (HTTP status = `metaDa
 | `POST /book/upload`, `POST /book/reindex` | message "Indexing queue is full, try again later." while `BE_INGESTION_MAX_QUEUED` (50) books are `queued` | `BE_INGESTION_MAX_QUEUED` |
 | `POST /chat/stream` | "Too many answers are being generated right now, try again shortly." while `BE_CHAT_MAX_CONCURRENT_SESSIONS` (20) answers run | `BE_CHAT_MAX_CONCURRENT_SESSIONS` |
 
-"Per client" = the authenticated user (valid access token) or else the client IP; `X-Forwarded-For` is only believed from peers listed in `BE_TRUSTED_PROXIES`. A budget of 0 disables it. These sit on top of the global per-IP limit (`BE_RATE_LIMIT`, plain `{"detail": "Too many requests"}`).
+"Per client" = the service principal (valid `X-Internal-Token`), else the authenticated user (valid access token), else the client IP; `X-Forwarded-For` is only believed from peers listed in `BE_TRUSTED_PROXIES`. A budget of 0 disables it. These sit on top of the global per-IP limit (`BE_RATE_LIMIT`, plain `{"detail": "Too many requests"}`).
 
 ---
 

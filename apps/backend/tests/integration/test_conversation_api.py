@@ -3,6 +3,7 @@
 import pytest
 
 import router.chat as chat_router
+from auth.principal import LOCAL
 from service import Services
 from service.chat_session import ChatSessions, RedisSessionStore
 from service.conversation import Conversation
@@ -30,7 +31,7 @@ class OneHitSearch:
 
 def test_repository_round_trip_keeps_order_and_json():
     repo = ConversationRepository()
-    conversation = repo.create("Lifeboat", book_ids=[])
+    conversation = repo.create("Lifeboat", book_ids=[], owner_id="local")
     repo.add_message(conversation["id"], {"role": "user", "content": "Who came?", "book_ids": []})
     repo.add_message(conversation["id"], {"role": "assistant", "content": "The lifeboat [1].", "mode": "llm",
                                           "grounded": True, "sources": [{"n": 1, "cited": True}]})
@@ -38,9 +39,9 @@ def test_repository_round_trip_keeps_order_and_json():
     assert [m["role"] for m in messages] == ["user", "assistant"]
     assert messages[1]["sources"] == [{"n": 1, "cited": True}]
     assert [m["role"] for m in repo.recent_messages(conversation["id"], 1)] == ["assistant"]
-    rows, total = repo.list_recent()
+    rows, total = repo.list_recent(LOCAL)
     assert total == 1 and rows[0]["message_count"] == 2
-    assert repo.delete(conversation["id"]) and repo.messages(conversation["id"]) == []  # cascade
+    assert repo.delete(conversation["id"], LOCAL) and repo.messages(conversation["id"]) == []  # cascade
 
 
 async def test_stream_then_list_rename_delete(client, redis_client, monkeypatch):

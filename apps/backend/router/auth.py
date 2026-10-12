@@ -137,7 +137,8 @@ def login(dto: AuthDTO, response: Response):
 def logout(request: Request, response: Response):
     start_time = time()
     try:
-        token = request.headers.get("Authorization") or request.cookies.get("token")
+        # The access cookie may already have expired (only the refresh cookie is required): still log out.
+        token = request.headers.get("Authorization") or request.cookies.get("token") or ""
         data = obj.logout(token)
         response.delete_cookie("refresh_token")
         response.delete_cookie("token")

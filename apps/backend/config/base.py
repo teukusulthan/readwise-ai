@@ -68,6 +68,14 @@ class BaseSetting(BaseSettings):
     JWT_EXPIRED: int
     JWT_REFRESH: int = Field(default=604800)
     JWT_ACTIVE: bool
+    # Service credential for system-to-system calls (the MCP server, seed scripts): a request whose
+    # `X-Internal-Token` header equals it is authorised as the principal "service:internal" while
+    # JWT_ACTIVE is true. It reads the shared catalog/search/ask but has no conversations of its own.
+    # Empty = disabled. When set, at least 32 characters.
+    INTERNAL_TOKEN: str = Field(default="")
+    # /auth/register: true (default) = the boilerplate flow (MX + Proofy check, OTP mail over SMTP, then
+    # /auth/verification). false = development only: the account is created at once, no mail is sent.
+    AUTH_EMAIL_VERIFICATION: bool = Field(default=True)
 
     BASE_RESPONSE_CASE: str
 
@@ -256,6 +264,12 @@ class BaseSetting(BaseSettings):
             raise ValueError(
                 f"{ENV_PREFIX}JWT_SECRET must be at least {MIN_SECRET_LENGTH} characters when "
                 f"{ENV_PREFIX}JWT_ACTIVE is true; {_SECRET_HINT}"
+            )
+        internal_token = values.get("INTERNAL_TOKEN") or ""
+        if internal_token and len(internal_token) < MIN_SECRET_LENGTH:
+            raise ValueError(
+                f"{ENV_PREFIX}INTERNAL_TOKEN must be empty (disabled) or at least {MIN_SECRET_LENGTH} "
+                f"characters; {_SECRET_HINT}"
             )
         # ENC_SECRET is used as an AES key: 48 chars (token_urlsafe(48)) would crash every response.
         if values.get("ENC_ACTIVE") and len(values.get("ENC_SECRET") or "") != MIN_SECRET_LENGTH:

@@ -159,14 +159,17 @@ Indexes:
 ```
 
 ```
-Table: conversations                          (migrations/002_create_conversations.sql)
+Table: conversations                          (migrations/002_create_conversations.sql, 004_conversation_owner.sql)
 Columns:
   - id: uuid PK (gen_random_uuid())
   - title: text NOT NULL (not blank) — first question, renameable
   - book_ids: uuid[] — book scope of the latest question ('{}' = all indexed books; no FK, books may be deleted)
   - created_at, updated_at: timestamptz (updated_at bumps on every message → sidebar order)
+  - owner_id: text NULL — the owning principal: JWT `user_id`, or 'local' while BE_JWT_ACTIVE=false;
+    NULL = created before accounts (visible to 'local' only). Every conversation query filters on it.
 Indexes:
   - (updated_at DESC)
+  - (owner_id, updated_at DESC)
 
 Table: conversation_messages
 Columns:
@@ -188,7 +191,8 @@ Indexes:
 
 ```
 chat:session:{session_id}:events      STREAM  {event, data(json)} per SSE event; entry id = SSE event id; MAXLEN ~10000
-chat:session:{session_id}             HASH    status running|done|error|cancelled, conversation_id, heartbeat, created_at, finished_at
+chat:session:{session_id}             HASH    status running|done|error|cancelled, conversation_id, heartbeat, created_at, finished_at,
+                                              owner (principal that started it; resume/cancel check it)
 chat:session:{session_id}:cancel      STRING  "1" when Stop was requested
 chat:conversation:{conversation_id}:active  STRING  session id while that conversation's answer is being generated
 TTL: BE_CHAT_SESSION_TTL_SECONDS (3600), refreshed while the session runs. Redis also holds rate-limit counters.
