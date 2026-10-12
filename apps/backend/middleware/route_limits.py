@@ -39,8 +39,8 @@ def _token(request: Request):
 
 
 def client_key(request: Request) -> str:
-    """`user:<id>` for a valid access token, else `ip:<address>`."""
-    token = _token(request)
+    """`user:<id>` for a valid access token (only while BE_JWT_ACTIVE), else `ip:<address>`."""
+    token = _token(request) if settings.JWT_ACTIVE else None  # unsigned-key tokens are forgeable when JWT is off
     if token:
         try:
             payload = decode_jwt(token)

@@ -202,9 +202,8 @@ for router_name, module_name in ROUTER_MODULES.items():
         app.include_router(module.router)
 
 
-if __name__ == "__main__":
-    uvicorn.run(
-        "api:app",
+def uvicorn_options() -> dict:
+    return dict(
         host="0.0.0.0",
         port=int(args.port),
         workers=args.worker,
@@ -214,4 +213,11 @@ if __name__ == "__main__":
         # scripts/ or writing to storage/ must not restart the server.
         # (api.py itself is not watched — restart by hand after editing it.)
         reload_dirs=[d for d in RELOAD_DIRS if os.path.isdir(d)],
+        # util/client_ip.py is the only reader of X-Forwarded-For (and only from BE_TRUSTED_PROXIES);
+        # uvicorn's own proxy-header rewrite would let any loopback peer pick the client IP.
+        proxy_headers=False,
     )
+
+
+if __name__ == "__main__":
+    uvicorn.run("api:app", **uvicorn_options())

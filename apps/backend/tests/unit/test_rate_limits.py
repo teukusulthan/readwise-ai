@@ -50,7 +50,26 @@ def _token(user_id):
     return base_sign_jwt({"user_id": user_id})["token"]
 
 
+def test_uvicorn_does_not_rewrite_the_client_from_forwarded_headers():
+    import api
+
+    assert api.uvicorn_options()["proxy_headers"] is False
+
+
 # ── per-route limits ──────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def jwt_on(settings, monkeypatch):
+    monkeypatch.setattr(settings, "JWT_ACTIVE", True)
+
+
+async def test_tokens_do_not_pick_a_budget_while_jwt_is_inactive(redis, settings, monkeypatch):
+    monkeypatch.setattr(settings, "JWT_ACTIVE", False)
+    monkeypatch.setattr(settings, "RATE_LIMIT_SEARCH_PER_MINUTE", 1)
+    async with _client(_app()) as client:
+        assert (await client.post("/limited", headers={"Authorization": f"Bearer {_token('forged-1')}"})).status_code == 200
+        assert (await client.post("/limited", headers={"Authorization": f"Bearer {_token('forged-2')}"})).status_code == 429
+
 
 async def test_over_budget_is_429_with_envelope_and_retry_after(redis, settings, monkeypatch):
     monkeypatch.setattr(settings, "RATE_LIMIT_SEARCH_PER_MINUTE", 2)
