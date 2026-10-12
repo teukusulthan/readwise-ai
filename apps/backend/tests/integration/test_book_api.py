@@ -57,7 +57,9 @@ async def test_catalog_crud_and_search(client):
     assert duplicate.status_code == 409
 
     assert (await client.get("/book/get-one", params={"id": "not-a-uuid"})).status_code == 400
-    assert (await client.get("/book/get-one", params={"id": "00000000-0000-0000-0000-000000000000"})).status_code == 404
+    missing = await client.get("/book/get-one", params={"id": "00000000-0000-0000-0000-000000000000"})
+    assert missing.status_code == 404
+    assert "detail" not in missing.json() and missing.json()["metaData"]["responseCode"] == 404
 
 
 async def test_upload_index_search_ask_delete(client):

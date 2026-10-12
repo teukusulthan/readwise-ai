@@ -92,21 +92,25 @@ def _handler_client():
 
 
 async def test_envelope_http_exception_is_top_level_and_keeps_headers():
-    resp = await _handler_client().get("/envelope")
+    async with _handler_client() as c:
+        resp = await c.get("/envelope")
     assert resp.status_code == 404
     assert resp.json()["metaData"]["responseCode"] == 404 and "detail" not in resp.json()
     assert resp.headers["www-authenticate"] == "Bearer"
 
 
 async def test_plain_http_exception_keeps_detail_shape():
-    resp = await _handler_client().get("/plain")
+    async with _handler_client() as c:
+        resp = await c.get("/plain")
     assert resp.status_code == 400 and resp.json() == {"detail": "plain message"}
 
 
-async def test_real_app_registers_envelope_handler(client):
+async def test_real_app_auth_failure_keeps_plain_detail(client):
+    # The JWT guard raises a plain-string HTTPException by design; the envelope
+    # handler must leave it alone. (The 404 envelope is proven in integration tests.)
     resp = await client.get("/book/get-one", params={"id": "00000000-0000-0000-0000-000000000000"})
-    assert resp.status_code in (401, 404)
-    assert "detail" not in resp.json() or isinstance(resp.json()["detail"], str)
+    assert resp.status_code == 401
+    assert resp.json() == {"detail": "Authentication required."}
 
 
 def test_cors_default_origins_include_dev_port_3001():
