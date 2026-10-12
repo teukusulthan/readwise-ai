@@ -15,16 +15,23 @@ export interface IBatchRow {
   status: TBatchRowStatus
   progress: number
   error?: string
+  /** True when the failure came from the upload itself (not local validation), so it may be retried. */
+  retryable?: boolean
   book?: IBook
 }
 
 /** "Dune_Messiah.pdf" -> "Dune Messiah". */
 export function titleFromFileName(name: string): string {
-  return name
+  const derived = name
     .replace(/\.pdf$/i, '')
     .replace(/[_]+/g, ' ')
     .trim()
+  return derived || name.trim()
 }
+
+export const BLANK_TITLE_ERROR = 'Enter a title'
+
+export const hasBlankTitle = (row: Pick<IBatchRow, 'status' | 'title'>) => row.status === 'pending' && !row.title.trim()
 
 function validate(file: File): string | undefined {
   if (!file.name.toLowerCase().endsWith('.pdf')) return 'Only .pdf files are supported'
@@ -76,6 +83,15 @@ export function useBatchUpload() {
     [commit],
   )
 
+  /** Re-queue a row whose upload failed. Local validation failures and queued rows are left alone. */
+  const retry = useCallback(
+    (id: string) => {
+      const row = rowsRef.current.find((r) => r.id === id)
+      if (row?.status === 'error' && row.retryable) patch(id, { status: 'pending', progress: 0, error: undefined, retryable: false })
+    },
+    [patch],
+  )
+
   const reset = useCallback(() => commit([]), [commit])
 
   const stop = useCallback(() => {
@@ -90,16 +106,16 @@ export function useBatchUpload() {
     try {
       for (;;) {
         if (stopRequested.current) break
-        const row = rowsRef.current.find((r) => r.status === 'pending')
+        const row = rowsRef.current.find((r) => r.status === 'pending' && r.title.trim())
         if (!row) break
         patch(row.id, { status: 'uploading', progress: 0, error: undefined })
         try {
-          const res = await bookService.upload({ file: row.file, title: row.title }, (progress) => patch(row.id, { progress }))
+          const res = await bookService.upload({ file: row.file, title: row.title.trim() }, (progress) => patch(row.id, { progress }))
           queryClient.setQueryData(BOOK_KEYS.detail(res.data.id), res.data)
           queryClient.invalidateQueries({ queryKey: BOOK_KEYS.all })
           patch(row.id, { status: 'queued', progress: 100, book: res.data })
         } catch (error) {
-          patch(row.id, { status: 'error', error: error instanceof Error ? error.message : 'Upload failed' })
+          patch(row.id, { status: 'error', retryable: true, error: error instanceof Error ? error.message : 'Upload failed' })
         }
       }
     } finally {
@@ -110,5 +126,5 @@ export function useBatchUpload() {
 
   const getRows = useCallback(() => rowsRef.current, [])
 
-  return { rows, getRows, running, addFiles, setTitle, removeRow, reset, start, stop }
+  return { rows, getRows, running, addFiles, setTitle, removeRow, retry, reset, start, stop }
 }

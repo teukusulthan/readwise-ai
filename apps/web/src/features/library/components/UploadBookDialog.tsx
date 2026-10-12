@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { useBatchUpload } from '@/features/library/books/hooks/useBatchUpload'
 import { useUploadBook } from '@/features/library/books/hooks/useUploadBook'
@@ -28,13 +28,13 @@ export function UploadBookDialog({ bookId, triggerLabel = 'Upload PDF', onUpload
   const batch = useBatchUpload()
   const form = useForm<TUploadFormValues>({
     resolver: zodResolver(uploadSchema),
-    defaultValues: { file: undefined, title: '' },
+    defaultValues: { file: undefined },
   })
 
   const onSubmit = (values: TUploadFormValues) => {
     if (!values.file) return
     upload.mutate(
-      { file: values.file, bookId, title: bookId ? undefined : values.title },
+      { file: values.file, bookId },
       {
         onSuccess: (book) => {
           form.reset()
@@ -50,6 +50,11 @@ export function UploadBookDialog({ bookId, triggerLabel = 'Upload PDF', onUpload
     batch.stop()
     setOpen(false)
     batch.reset() // a new batch starts clean; an in-flight file still finishes in the background
+  }
+
+  const retryRow = (id: string) => {
+    batch.retry(id)
+    if (!batch.running) void startBatch()
   }
 
   const startBatch = async () => {
@@ -96,6 +101,7 @@ export function UploadBookDialog({ bookId, triggerLabel = 'Upload PDF', onUpload
               onAddFiles={batch.addFiles}
               onTitleChange={batch.setTitle}
               onRemove={batch.removeRow}
+              onRetry={retryRow}
               onStart={startBatch}
               onClose={() => (batch.running ? setConfirmClose(true) : closeBatch())}
             />
@@ -133,22 +139,6 @@ export function UploadBookDialog({ bookId, triggerLabel = 'Upload PDF', onUpload
                 </FormItem>
               )}
             />
-            {!bookId && (
-              <FormField
-                control={form.control}
-                name="title"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Title (optional)</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Defaults to the file name" {...field} />
-                    </FormControl>
-                    <FormDescription>You can edit the catalog details later.</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
             {upload.isPending && (
               <div className="space-y-1" aria-live="polite">
                 <progress

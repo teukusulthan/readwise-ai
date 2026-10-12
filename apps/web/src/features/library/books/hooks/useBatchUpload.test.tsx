@@ -93,4 +93,40 @@ describe('useBatchUpload', () => {
     expect(result.current.rows.map((r) => r.status)).toEqual(['queued', 'pending'])
     expect(upload).toHaveBeenCalledTimes(1)
   })
+
+  it('retry re-sends a failed upload with its edited title but never a queued row', async () => {
+    upload.mockRejectedValueOnce(new Error('boom'))
+    upload.mockResolvedValueOnce(book('b'))
+    upload.mockResolvedValueOnce(book('a'))
+    const { result } = setup()
+    act(() => result.current.addFiles([pdf('a.pdf'), pdf('b.pdf')]))
+    await act(() => result.current.start())
+    const [failed, queued] = result.current.rows
+    expect(failed).toMatchObject({ status: 'error', retryable: true })
+    act(() => result.current.retry(queued.id))
+    expect(result.current.rows[1].status).toBe('queued')
+    act(() => result.current.setTitle(failed.id, 'Fixed'))
+    act(() => result.current.retry(failed.id))
+    await act(() => result.current.start())
+    expect(upload).toHaveBeenCalledTimes(3)
+    expect(upload.mock.calls[2][0]).toMatchObject({ title: 'Fixed' })
+    expect(result.current.rows.map((r) => r.status)).toEqual(['queued', 'queued'])
+  })
+
+  it('does not retry local validation failures', () => {
+    const { result } = setup()
+    act(() => result.current.addFiles([new File(['x'], 'notes.txt')]))
+    act(() => result.current.retry(result.current.rows[0].id))
+    expect(result.current.rows[0].status).toBe('error')
+  })
+
+  it('never sends a blank title and falls back to the file name', async () => {
+    const { result } = setup()
+    act(() => result.current.addFiles([pdf('.pdf')]))
+    expect(result.current.rows[0].title).toBe('.pdf')
+    act(() => result.current.setTitle(result.current.rows[0].id, '   '))
+    await act(() => result.current.start())
+    expect(upload).not.toHaveBeenCalled()
+    expect(result.current.rows[0].status).toBe('pending')
+  })
 })
