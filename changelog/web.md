@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Patch dependencies, drop unused libraries and dead boilerplate files (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/web/package.json`, `apps/web/package-lock.json`, `apps/web/vite.config.ts`, `apps/web/tsconfig.json`, `apps/web/src/main.tsx`, `apps/web/AI_GUIDE.md`; removed `apps/web/public/sw.js`, `src/pwa-register.js`, `src/App.tsx`, `src/components/layouts/{BlankLayout,TopLayout,AppFooter}.tsx`, `src/services/api-factory-crud.service.ts`, `src/utils/date-formatter.ts`, `src/hooks/use-mobile.tsx`, `src/modules/{data-display,dynamic-filter}`
+> `axios` 1.20.0 and `react-router-dom`/`react-router` 6.30.6 (latest of the current majors). Removed the `moment-timezone` side effect in `main.tsx` (main bundle 895 kB -> 101 kB) and the leftover service-worker registration. Dropped 28 never-imported packages (echarts, recharts, mapbox-gl, wavesurfer, styled-components, lodash, dayjs, date-fns, moment, crypto-js, immer, react-table, @tanstack/react-table, @babel/standalone, dompurify, polished, slugify, next-themes, sass, autoprefixer, terser, dotenv and others) plus their `@types`, and the matching `manualChunks` entries. `@tailwindcss/postcss` and the testing-library packages moved to `devDependencies`. Deleted the unreferenced files listed above. `npm audit --omit=dev`: 11 -> 2 moderate (remaining `react-router` 6.x advisories are only fixed in v7, a major bump).
+
 ### 2026-10-12 · Show "question already being answered" (409) in chat (no sprint) · ✅ Done
 
 **Event:** Files modified

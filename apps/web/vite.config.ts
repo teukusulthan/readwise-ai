@@ -52,13 +52,6 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, './src'),
       },
     },
-    css: {
-      preprocessorOptions: {
-        scss: {
-          api: 'modern-compiler',
-        },
-      },
-    },
     server: {
       port: Number(env.PORT) || 3000,
       cors: true,
@@ -87,11 +80,8 @@ export default defineConfig(({ mode }) => {
             // Only direct dependencies — chunking a transitive package breaks when it's not installed.
             'vendor-radix': ['@radix-ui/react-dialog', '@radix-ui/react-slot', '@radix-ui/react-tooltip'],
             'vendor-query': ['@tanstack/react-query'],
-            'vendor-table': ['@tanstack/react-table'],
-            'vendor-charts': ['echarts', 'recharts'],
-            'vendor-map': ['mapbox-gl'],
             'vendor-form': ['react-hook-form', 'zod', '@hookform/resolvers'],
-            'vendor-state': ['zustand', 'immer'],
+            'vendor-state': ['zustand'],
           },
         },
       },
