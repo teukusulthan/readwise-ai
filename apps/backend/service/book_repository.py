@@ -143,15 +143,7 @@ class BookRepository:
         _check_columns(fields)
         if not fields:
             return self.get(book_id)
-        assignments = sql.SQL(", ").join(
-            sql.SQL("{} = {}").format(sql.Identifier(c), sql.Placeholder(c)) for c in fields
-        )
-        query = sql.SQL("UPDATE books SET {}, updated_at = now() WHERE id = %(id)s RETURNING *").format(assignments)
-        with self.pool.connection() as conn:
-            try:
-                return conn.execute(query, {**fields, "id": parse_book_id(book_id)}).fetchone()
-            except UniqueViolation as error:
-                raise DuplicateBookError(_duplicate_message(error)) from error
+        return self._update_where(book_id, fields)
 
     def transition_status(self, book_id, to_status: str, from_statuses: Iterable[str], **fields) -> Optional[dict]:
         """
@@ -161,13 +153,10 @@ class BookRepository:
         """
         _check_columns(fields)
         fields["ingestion_status"] = to_status
-        assignments = sql.SQL(", ").join(
-            sql.SQL("{} = {}").format(sql.Identifier(c), sql.Placeholder(c)) for c in fields
-        )
         query = sql.SQL(
             "UPDATE books SET {}, updated_at = now() "
             "WHERE id = %(id)s AND ingestion_status = ANY(%(from_statuses)s) RETURNING *"
-        ).format(assignments)
+        ).format(_assignments(fields))
         params = {**fields, "id": parse_book_id(book_id), "from_statuses": list(from_statuses)}
         with self.pool.connection() as conn:
             return conn.execute(query, params).fetchone()
@@ -179,17 +168,7 @@ class BookRepository:
         (a concurrent attach won).
         """
         _check_columns(fields)
-        assignments = sql.SQL(", ").join(
-            sql.SQL("{} = {}").format(sql.Identifier(c), sql.Placeholder(c)) for c in fields
-        )
-        query = sql.SQL(
-            "UPDATE books SET {}, updated_at = now() WHERE id = %(id)s AND file_sha256 IS NULL RETURNING *"
-        ).format(assignments)
-        with self.pool.connection() as conn:
-            try:
-                return conn.execute(query, {**fields, "id": parse_book_id(book_id)}).fetchone()
-            except UniqueViolation as error:
-                raise DuplicateBookError(_duplicate_message(error)) from error
+        return self._update_where(book_id, fields, condition=sql.SQL("file_sha256 IS NULL"))
 
     def fail_interrupted(self) -> int:
         """Mark jobs left `queued`/`processing` by a previous process as failed (they died with it)."""
@@ -213,11 +192,31 @@ class BookRepository:
                 (parse_book_id(book_id), list(BUSY_STATUSES)),
             ).fetchone()
 
+    def _update_where(self, book_id, fields: dict, condition: Optional[sql.Composable] = None) -> Optional[dict]:
+        """
+        UPDATE one book's (already checked) `fields`, only if the extra `condition` holds.
+        Returns the updated row, or None if no row matched; unique violations -> DuplicateBookError.
+        """
+        where = sql.SQL("id = %(id)s") if condition is None else sql.SQL("id = %(id)s AND {}").format(condition)
+        query = sql.SQL("UPDATE books SET {}, updated_at = now() WHERE {} RETURNING *").format(
+            _assignments(fields), where
+        )
+        with self.pool.connection() as conn:
+            try:
+                return conn.execute(query, {**fields, "id": parse_book_id(book_id)}).fetchone()
+            except UniqueViolation as error:
+                raise DuplicateBookError(_duplicate_message(error)) from error
+
 
 def _check_columns(fields: dict):
     unknown = set(fields) - WRITABLE_COLUMNS
     if unknown:
         raise ValueError(f"Unknown book fields: {sorted(unknown)}")
+
+
+def _assignments(fields: dict) -> sql.Composed:
+    """`col = %(col)s, …` for whitelisted column names."""
+    return sql.SQL(", ").join(sql.SQL("{} = {}").format(sql.Identifier(c), sql.Placeholder(c)) for c in fields)
 
 
 def _escape_like(text: str) -> str:
