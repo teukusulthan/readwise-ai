@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { PerfectScrollArea } from '@/components/wrappers/PerfectScrollArea'
-import { BLANK_TITLE_ERROR, hasBlankTitle, type IBatchRow, type TBatchRowStatus } from '@/features/library/books/hooks/useBatchUpload'
+import { BLANK_TITLE_ERROR, hasBlankTitle, type IBatchRow, type TBatchRowStatus } from '@/features/library/upload/hooks/useBatchUpload'
 import { renderIcon } from '@/utils/icon-renderer'
 
 const STATUS_LABEL: Record<TBatchRowStatus, string> = {

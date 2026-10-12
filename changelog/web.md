@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Upload components move into a feature folder (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/web/src/features/library/upload/{components,hooks,schemas}/*` (moved from `library/components/`, `library/books/hooks/`, `library/books/schemas/`), `CatalogView.tsx`, `BookDocumentPanel.tsx`
+> `UploadBookDialog`, `BatchUploadPanel`, `useUploadBook`, `useBatchUpload`, `upload.schema` and their tests now live under `features/library/upload/`, per the component placement rule. Imports updated; no behaviour change.
+
 ### 2026-10-12 · Book picker scales past 100 books (no sprint) · ✅ Done
 
 **Event:** Files modified
