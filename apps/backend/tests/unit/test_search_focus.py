@@ -97,3 +97,24 @@ def test_a_named_book_uses_the_relaxed_threshold():
     search.retrieve("What does Mark Manson say?", top_k=8)
     search.retrieve("What is courage?", top_k=8)
     assert thresholds[0] == 0.35 and thresholds[1] == 0.45
+
+
+def test_hits_carry_the_catalog_title_not_the_stale_payload_title():
+    # RecordingStore puts the book id in the payload title, as a book renamed after indexing would
+    # still carry its old title in every Qdrant point.
+    search, _ = _search()
+    result = search.retrieve("Compare The Time Machine and The War of the Worlds", top_k=4)
+    assert {h.book_title for h in result.hits} == {"The Time Machine", "The War of the Worlds"}
+
+    from dto.search import SearchQueryDTO
+    api = search.query(SearchQueryDTO(query="what happens to the traveller", bookIds=[B_TM], topK=2))
+    assert {r["bookTitle"] for r in api["results"]} == {"The Time Machine"}
+
+
+def test_payload_title_is_the_fallback_when_the_book_row_is_missing():
+    from service.search import with_catalog_titles
+
+    hit = ChunkHit(score=0.9, book_id="gone", book_title="Old title", chunk_index=0, text="t")
+    renamed = ChunkHit(score=0.8, book_id=B_TM, book_title="Old title", chunk_index=0, text="t")
+    titled = with_catalog_titles([hit, renamed], {B_TM: CATALOG[2]})
+    assert [h.book_title for h in titled] == ["Old title", "The Time Machine"]

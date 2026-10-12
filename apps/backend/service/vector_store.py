@@ -5,6 +5,8 @@ One collection (settings.QDRANT_COLLECTION), one point per chunk:
   id       deterministic uuid5(book_id, chunk_index) — re-ingesting overwrites, never duplicates
   vector   1024-dim embedding from the company embedding service (cosine distance)
   payload  book_id, book_title, chunk_index, text, headings, page_start, page_end, embedding_model
+           (book_title is the title at indexing time; retrieval shows the catalog title instead —
+           see search.with_catalog_titles)
 """
 
 import uuid

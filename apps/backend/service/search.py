@@ -15,7 +15,7 @@ Three refinements on top of plain top-k search (see retrieve()):
 """
 
 import math
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Optional
 
 from config.base import settings
@@ -102,6 +102,7 @@ class Search:
                 hits = merge_hits([self.vector_store.search(v, book_ids=searchable, limit=limit, min_score=threshold)
                                    for v in vectors], limit)
 
+        hits = with_catalog_titles(hits, by_id)
         involved = list(dict.fromkeys(
             [str(b["id"]) for b in mentioned] + ([str(b) for b in book_ids] if book_ids else []) + [h.book_id for h in hits]
         ))
@@ -147,6 +148,15 @@ def book_to_context(book: dict) -> dict:
         "description": book.get("description"),
         "indexed": book["ingestion_status"] == "indexed",
     }
+
+
+def with_catalog_titles(hits: list[ChunkHit], by_id: dict[str, dict]) -> list[ChunkHit]:
+    """
+    Titles come from the catalog, not the point payload: the payload keeps the title the book had
+    when it was indexed, so a renamed book would be cited under its old name. The payload title is
+    only a fallback for a book whose row is gone.
+    """
+    return [replace(hit, book_title=by_id[hit.book_id]["title"]) if hit.book_id in by_id else hit for hit in hits]
 
 
 def merge_hits(results: list[list[ChunkHit]], limit: int) -> list[ChunkHit]:

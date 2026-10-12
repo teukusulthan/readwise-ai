@@ -129,3 +129,69 @@ async def test_import_from_open_library(client, monkeypatch):
     imported = (await client.post("/book/import", json={"isbn": "9780441013593"})).json()["data"]
     assert imported["metadataSource"] == "openlibrary" and imported["searchable"] is False
     assert (await client.post("/book/import", json={"isbn": "9780441013593"})).status_code == 409
+
+
+# ── edits, deletes and attaches stay consistent with the index ────────
+
+async def test_renamed_book_is_cited_under_its_new_title(client):
+    book = (await _upload(client)).json()["data"]
+    renamed = await client.put("/book/update", json={"id": book["id"], "title": "Saltmere, Revised"})
+    assert renamed.status_code == 200
+    # The points still carry the old title in their payload; results use the catalog title.
+    results = (await client.post("/search/query", json={"query": "who built Saltmere Light in 1847"})).json()["data"]
+    assert results["results"] and {r["bookTitle"] for r in results["results"]} == {"Saltmere, Revised"}
+
+
+async def test_delete_is_refused_while_indexing_and_404_when_missing(client):
+    book = (await _upload(client)).json()["data"]
+    repo = BookRepository()
+    assert repo.transition_status(book["id"], "processing", from_statuses=("indexed",))
+
+    busy = await client.delete("/book/delete", params={"id": book["id"]})
+    assert busy.status_code == 409
+    assert busy.json()["metaData"]["message"] == "The book is being indexed. Wait until indexing finishes, then delete it."
+    assert repo.get(book["id"]) and book_router.obj.vector_store.count(book["id"]) == 2
+
+    missing = await client.delete("/book/delete", params={"id": "00000000-0000-0000-0000-000000000000"})
+    assert missing.status_code == 404
+
+
+def test_delete_if_idle_guard():
+    repo = BookRepository()
+    for status in ("queued", "processing"):
+        row = repo.insert({"title": f"Busy {status}", "ingestion_status": status})
+        assert repo.delete_if_idle(row["id"]) is None and repo.get(row["id"])
+    idle = repo.insert({"title": "Idle"})
+    assert repo.delete_if_idle(idle["id"])["id"] == idle["id"] and repo.get(idle["id"]) is None
+    assert repo.delete_if_idle(idle["id"]) is None
+
+
+def test_attach_document_guard():
+    repo = BookRepository()
+    book = repo.insert({"title": "Catalog entry"})
+    fields = {"file_name": "a.pdf", "file_sha256": "a" * 64, "file_size_bytes": 10, "file_path": "/books/x.pdf",
+              "ingestion_status": "queued", "ingestion_error": None}
+    attached = repo.attach_document(book["id"], fields)
+    assert attached["file_sha256"] == "a" * 64 and attached["ingestion_status"] == "queued"
+    assert attached["file_path"] == "/books/x.pdf"
+    # A second attach (the loser of a race) changes nothing.
+    assert repo.attach_document(book["id"], {**fields, "file_sha256": "b" * 64}) is None
+    assert repo.get(book["id"])["file_sha256"] == "a" * 64
+
+
+async def test_worker_removes_points_of_a_book_deleted_while_indexing(client, monkeypatch):
+    from service import Services
+
+    def parse_then_delete(path):
+        def chunks():
+            yield from (dict(c) for c in FAKE_CHUNKS)
+            with Services.postgres().connection() as conn:   # the row disappears mid-job
+                conn.execute("DELETE FROM books WHERE file_path = %s", (path,))
+        return 3, chunks()
+
+    monkeypatch.setattr(book_router.obj.ingestion, "_parser", parse_then_delete)
+    response = await _upload(client)
+    assert response.status_code == 200, response.text
+    book_id = response.json()["data"]["id"]
+    assert BookRepository().get(book_id) is None
+    assert book_router.obj.vector_store.count(book_id) == 0

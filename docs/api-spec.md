@@ -158,7 +158,7 @@ If you need to use these modules, you can access the documentation for the Auth,
 | POST | `/book/get-all` | List/search books (`search` on title/author/ISBN/publisher, `status` filter, paginated) | JWTBearer |
 | GET | `/book/get-one` | Book details incl. `ingestion` status and `searchable` | JWTBearer |
 | DELETE | `/book/delete` | Delete book, stored PDF and vectors (409 while indexing) | JWTBearer |
-| POST | `/book/upload` | Upload a PDF (multipart `file`, optional `bookId` / `title`) and queue indexing; 409 on duplicate file | JWTBearer |
+| POST | `/book/upload` | Upload a PDF (multipart `file`, optional `bookId` / `title`) and queue indexing; 409 on duplicate file or when the `bookId` book already has a document (also for the loser of two concurrent attaches) | JWTBearer |
 | POST | `/book/reindex` | Re-run indexing for an `indexed`/`failed` book (`?id=`) | JWTBearer |
 | GET | `/book/lookup` | Search Open Library (`?q=`) for books to import | JWTBearer |
 | POST | `/book/import` | Import metadata from Open Library by ISBN | JWTBearer |

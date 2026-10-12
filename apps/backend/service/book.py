@@ -22,8 +22,8 @@ from service.vector_store import VectorStore
 from util import storage
 from util.http_errors import ConflictError
 
-# Statuses during which the document is being processed and must not be touched.
-_BUSY = ("queued", "processing")
+_BUSY_MESSAGE = "The book is being indexed. Wait until indexing finishes, then delete it."
+_HAS_DOCUMENT_MESSAGE = "This book already has a document. Delete the book or use reindex."
 
 
 class BookNotFoundError(LookupError):
@@ -64,14 +64,18 @@ class Book:
         return [to_api(row) for row in rows], total
 
     def delete(self, book_id) -> dict:
-        row = self._get_row(book_id)
-        if row["ingestion_status"] in _BUSY:
-            raise ConflictError("The book is being indexed. Wait until indexing finishes, then delete it.")
-        # Vectors first: if a later step fails, search never returns chunks of a half-deleted book.
+        """
+        Row first, in one guarded statement (refused while the worker owns the book), then its
+        vectors and file. Search only uses books in the catalog, so points left behind by a failed
+        cleanup are never returned; the worker also drops points of a book deleted under it.
+        """
+        row = self.repository.delete_if_idle(parse_book_id(book_id))
+        if row is None:
+            self._get_row(book_id)  # 404 if it doesn't exist
+            raise ConflictError(_BUSY_MESSAGE)
         self.vector_store.delete_book(row["id"])
         if row["file_path"]:
             storage.discard(row["file_path"])
-        self.repository.delete(row["id"])
         return {"id": str(row["id"]), "deleted": True}
 
     # ── Open Library import ───────────────────────────────────────────
@@ -104,7 +108,7 @@ class Book:
         """
         target = self._get_row(book_id) if book_id else None
         if target and target["file_sha256"]:
-            raise ConflictError("This book already has a document. Delete the book or use reindex.")
+            raise ConflictError(_HAS_DOCUMENT_MESSAGE)
 
         stored = storage.save_pdf_upload(file, max_bytes=settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024)
         try:
@@ -121,19 +125,22 @@ class Book:
                 "ingestion_error": None,
             }
             if target:
-                row = self.repository.update(target["id"], file_fields)
+                # The file goes to <book_id>.pdf, so claim the book before moving it there: the loser
+                # of two concurrent attaches must not overwrite the winner's file.
+                row = self._attach(target["id"], file_fields)
+                storage.finalize(stored, row["id"])
             else:
                 row = self.repository.insert({
                     "title": (title or "").strip() or _title_from_filename(filename),
                     "metadata_source": "upload",
                     **file_fields,
                 })
-            final_path = storage.finalize(stored, row["id"])
+                final_path = storage.finalize(stored, row["id"])
+                row = self.repository.update(row["id"], {"file_path": str(final_path)})
         except BaseException:
             storage.discard(stored.path)
             raise
 
-        row = self.repository.update(row["id"], {"file_path": str(final_path)})
         self.ingestion.enqueue(row["id"])
         logger.info("Queued book {id} for indexing ({size} bytes)", id=row["id"], size=stored.size_bytes)
         return to_api(row)
@@ -149,6 +156,16 @@ class Book:
             raise ConflictError(f"The book is already {row['ingestion_status']}.")
         self.ingestion.enqueue(row["id"])
         return to_api(claimed)
+
+    def _attach(self, book_id, file_fields: dict) -> dict:
+        """Hash + path + queued status in one guarded write (only if the book has no document yet)."""
+        row = self.repository.attach_document(
+            book_id, {**file_fields, "file_path": str(storage.book_file_path(book_id))}
+        )
+        if row is None:
+            self._get_row(book_id)  # 404 if it was deleted meanwhile
+            raise ConflictError(_HAS_DOCUMENT_MESSAGE)
+        return row
 
     def _get_row(self, book_id) -> dict:
         row = self.repository.get(parse_book_id(book_id))

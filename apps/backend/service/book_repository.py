@@ -16,6 +16,8 @@ from psycopg.errors import UniqueViolation
 from service import Services
 
 INGESTION_STATUSES = ("none", "queued", "processing", "indexed", "failed")
+# While a book is in one of these, the ingestion worker owns its document and vectors.
+BUSY_STATUSES = ("queued", "processing")
 
 # Columns callers may set through insert()/update().
 WRITABLE_COLUMNS = {
@@ -170,6 +172,25 @@ class BookRepository:
         with self.pool.connection() as conn:
             return conn.execute(query, params).fetchone()
 
+    def attach_document(self, book_id, fields: dict) -> Optional[dict]:
+        """
+        Set a book's document fields (hash, path, status, …) in one statement, only if it has no
+        document yet. Returns the updated row, or None if the book is gone or already has a document
+        (a concurrent attach won).
+        """
+        _check_columns(fields)
+        assignments = sql.SQL(", ").join(
+            sql.SQL("{} = {}").format(sql.Identifier(c), sql.Placeholder(c)) for c in fields
+        )
+        query = sql.SQL(
+            "UPDATE books SET {}, updated_at = now() WHERE id = %(id)s AND file_sha256 IS NULL RETURNING *"
+        ).format(assignments)
+        with self.pool.connection() as conn:
+            try:
+                return conn.execute(query, {**fields, "id": parse_book_id(book_id)}).fetchone()
+            except UniqueViolation as error:
+                raise DuplicateBookError(_duplicate_message(error)) from error
+
     def fail_interrupted(self) -> int:
         """Mark jobs left `queued`/`processing` by a previous process as failed (they died with it)."""
         with self.pool.connection() as conn:
@@ -180,9 +201,17 @@ class BookRepository:
             )
             return cursor.rowcount
 
-    def delete(self, book_id) -> Optional[dict]:
+    def delete_if_idle(self, book_id) -> Optional[dict]:
+        """
+        Delete the book unless the ingestion worker owns it (queued/processing), in one statement,
+        so a reindex claimed between a status check and the delete can't be deleted under the worker.
+        Returns the deleted row, or None if the book is missing or busy.
+        """
         with self.pool.connection() as conn:
-            return conn.execute("DELETE FROM books WHERE id = %s RETURNING *", (parse_book_id(book_id),)).fetchone()
+            return conn.execute(
+                "DELETE FROM books WHERE id = %s AND NOT (ingestion_status = ANY(%s)) RETURNING *",
+                (parse_book_id(book_id), list(BUSY_STATUSES)),
+            ).fetchone()
 
 
 def _check_columns(fields: dict):

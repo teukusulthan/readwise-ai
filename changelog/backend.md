@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Book edits, deletes and attachments stay consistent with the index (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/service/book.py`, `apps/backend/service/book_repository.py`, `apps/backend/service/ingestion.py`, `apps/backend/service/search.py`, `apps/backend/service/vector_store.py`, `apps/backend/tests/unit/test_book_consistency.py`, `apps/backend/tests/unit/test_ingestion.py`, `apps/backend/tests/unit/test_search_focus.py`, `apps/backend/tests/integration/test_book_api.py`, `docs/architecture.md`, `docs/api-spec.md`
+> Retrieval shows the catalog title (prompts, sources, `/search/query`), so renames apply without re-indexing. `DELETE /book/delete` is one guarded `DELETE … WHERE ingestion_status NOT IN ('queued','processing')` (409 while indexing, 404 if missing), then vectors and file; the worker deletes its points if the book was deleted while it ran. Attaching a PDF sets hash + path + queued in one `… WHERE file_sha256 IS NULL` update; the losing concurrent attach gets 409 and its file is removed.
+
 ### 2026-10-12 · One running turn per conversation (no sprint) · ✅ Done
 
 **Event:** Files modified

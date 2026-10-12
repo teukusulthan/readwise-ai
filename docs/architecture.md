@@ -65,7 +65,9 @@ POST /book/upload  (multipart: file, optional bookId | title)
      1. util/storage.save_pdf_upload   stream to a temp file in 1 MB pieces, check %PDF- magic bytes,
                                       enforce MAX_UPLOAD_SIZE_MB, compute sha256
      2. sha256 already in books?  → 409 "already uploaded as …"  (no duplicate book)
-     3. insert/update books row: ingestion_status = 'queued', file metadata
+     3. new book: insert row (ingestion_status = 'queued', file metadata)
+        existing book (bookId): one guarded UPDATE … WHERE id AND file_sha256 IS NULL sets hash + path +
+        'queued' together; a concurrent attach that lost gets 409 and its temp file is removed
      4. util/storage.finalize          move temp file → storage/books/<book_id>.pdf
      5. service/ingestion.enqueue      hand the book id to the worker thread   ──► 200 + Book JSON
   worker thread: Ingestion.run
@@ -79,7 +81,8 @@ POST /book/upload  (multipart: file, optional bookId | title)
      8. for each batch of 32 chunks: Services.embedding().embed_documents(embed_text)
                                      VectorStore.upsert_chunks  (point id = uuid5(book_id, chunk_index))
      9. delete leftover points with chunk_index ≥ new count (re-index that produced fewer chunks)
-    10. status='indexed', chunk_count, page_count, embedding_model, indexed_at
+    10. book row deleted meanwhile? → delete this book's points, stop (no orphan vectors)
+        status='indexed', chunk_count, page_count, embedding_model, indexed_at
         on error: status='failed', ingestion_error (user-safe message) → retry with POST /book/reindex
 At startup: migrations run; jobs left queued/processing by a crash are marked failed.
 ```
@@ -94,6 +97,8 @@ POST /search/query {query, bookIds?, topK?}
     3. VectorStore.search: Qdrant cosine search, filter book_id ∈ indexed books,
        score ≥ RETRIEVAL_MIN_SCORE (0.45), limit topK (6)
   → results [{bookTitle, headings, pageStart, pageEnd, text, score}]
+     bookTitle (here, in prompts and in chat sources) comes from the books table, not the point
+     payload (which keeps the title at indexing time), so a rename shows at once without re-indexing
 ```
 
 ### 4.3 Answer (books first, general knowledge labeled)
@@ -178,7 +183,9 @@ POST /book/add · PUT /book/update · POST /book/get-all · GET /book/get-one ·
 GET  /book/lookup?q=   → Open Library search (candidates with ISBN)
 POST /book/import      → Open Library by ISBN → books row, status 'none' (metadata only)
 Duplicates prevented by unique indexes on isbn, file_sha256, (metadata_source, external_id).
-Delete order: Qdrant points → PDF file → row (search never returns chunks of a half-deleted book).
+Delete: one guarded DELETE … WHERE id AND ingestion_status NOT IN ('queued','processing') (409 while
+indexing, 404 if missing) → Qdrant points → PDF file. Search only uses books in the catalog, so a
+deleted book's points are never returned; the worker drops points of a book deleted under it.
 ```
 
 ---
