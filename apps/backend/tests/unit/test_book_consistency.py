@@ -52,6 +52,9 @@ class FakeBooks:
             return None
         return self.rows.pop(str(book_id))
 
+    def count_queued(self):
+        return sum(1 for row in self.rows.values() if row.get("ingestion_status") == "queued")
+
     def attach_document(self, book_id, fields):
         self.attach_calls.append(dict(fields))
         row = self.rows.get(str(book_id))

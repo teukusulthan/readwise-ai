@@ -20,10 +20,12 @@ from service.ingestion import Ingestion
 from service.openlibrary import OpenLibraryClient
 from service.vector_store import VectorStore
 from util import storage
-from util.http_errors import ConflictError, NotFoundError
+from util.http_errors import ConflictError, NotFoundError, TooManyRequestsError
 
 _BUSY_MESSAGE = "The book is being indexed. Wait until indexing finishes, then delete it."
 _HAS_DOCUMENT_MESSAGE = "This book already has a document. Delete the book or use reindex."
+QUEUE_FULL_MESSAGE = "Indexing queue is full, try again later."
+QUEUE_RETRY_AFTER_SECONDS = 60
 
 
 class BookNotFoundError(NotFoundError):
@@ -98,6 +100,12 @@ class Book:
 
     # ── documents ─────────────────────────────────────────────────────
 
+    def _ensure_queue_room(self):
+        """Refuse new indexing work while the backlog is at BE_INGESTION_MAX_QUEUED (soft: check, then insert)."""
+        cap = settings.INGESTION_MAX_QUEUED
+        if cap > 0 and self.repository.count_queued() >= cap:
+            raise TooManyRequestsError(QUEUE_FULL_MESSAGE, retry_after=QUEUE_RETRY_AFTER_SECONDS)
+
     def upload_document(self, file: BinaryIO, filename: Optional[str], book_id: Optional[str] = None,
                         title: Optional[str] = None) -> dict:
         """
@@ -109,6 +117,7 @@ class Book:
         target = self._get_row(book_id) if book_id else None
         if target and target["file_sha256"]:
             raise ConflictError(_HAS_DOCUMENT_MESSAGE)
+        self._ensure_queue_room()
 
         stored = storage.save_pdf_upload(file, max_bytes=settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024)
         try:
@@ -149,6 +158,7 @@ class Book:
         row = self._get_row(book_id)
         if not row["file_path"] or not Path(row["file_path"]).exists():
             raise ConflictError("This book has no stored document to index. Upload a PDF first.")
+        self._ensure_queue_room()
         claimed = self.repository.transition_status(
             row["id"], "queued", from_statuses=("indexed", "failed"), ingestion_error=None
         )

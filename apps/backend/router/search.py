@@ -1,7 +1,8 @@
 import os
 from time import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from middleware.route_limits import route_limit
 
 from dto.search import SearchQueryDTO
 from models.base_response import BaseResponse
@@ -16,7 +17,7 @@ tag = os.path.splitext(os.path.basename(os.path.abspath(__file__)))[0]
 router = APIRouter(**router_param_builder(tag))
 
 
-@router.post("/query", include_in_schema=is_include_schema(tag, "query"))
+@router.post("/query", include_in_schema=is_include_schema(tag, "query"), dependencies=[Depends(route_limit("search"))])
 def query(dto: SearchQueryDTO):
     """Semantic search over indexed books. Returns matching passages with page/section references."""
     start_time = time()

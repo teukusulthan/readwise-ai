@@ -2,7 +2,8 @@ import os
 from time import time
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from middleware.route_limits import route_limit
 
 from dto.book import BookDTO, FindBookDTO, ImportBookDTO, UpdateBookDTO
 from models.base_response import BaseResponse
@@ -74,7 +75,7 @@ def delete(id: str):
         raise to_http_exception(error, start_time)
 
 
-@router.post("/upload", include_in_schema=is_include_schema(tag, "upload"))
+@router.post("/upload", include_in_schema=is_include_schema(tag, "upload"), dependencies=[Depends(route_limit("upload"))])
 def upload(
     file: UploadFile = File(..., description="PDF document"),
     bookId: Optional[str] = Form(default=None, description="Attach to an existing catalog entry"),

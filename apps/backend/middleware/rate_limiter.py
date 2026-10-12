@@ -4,13 +4,14 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from config.base import settings
 from service import Services
+from util.client_ip import client_ip
 
 _EXEMPT_PATHS = {"/health"}
 
 
 class RateLimitMiddleware:
     """
-    Fixed-window, per-client-IP rate limit backed by Redis.
+    Fixed-window, per-client-IP rate limit (client IP: util/client_ip.py) backed by Redis.
 
     Fails open: if Redis is unreachable the request is served and a warning is
     logged, so a Redis outage degrades protection instead of taking the API down.
@@ -28,9 +29,7 @@ class RateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        client = scope.get("client")
-        ip = client[0] if client else "unknown"
-        key = f"rate_limit:{ip}"
+        key = f"rate_limit:{client_ip(scope)}"
 
         try:
             pipe = self.redis.pipeline()

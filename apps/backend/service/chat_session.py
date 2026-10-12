@@ -17,6 +17,9 @@ Redis keys (expire after CHAT_SESSION_TTL_SECONDS, refreshed while the session r
   chat:session:{id}:events        STREAM  entries {event, data(json)}; entry id = SSE event id
   chat:session:{id}               HASH    status running|done|error|cancelled, conversation_id, heartbeat, created_at
   chat:session:{id}:cancel        STRING  set by cancel(); the runner polls it (works across workers)
+  chat:sessions:running           ZSET    session ids (score = start time) of turns that count toward
+                                          CHAT_MAX_CONCURRENT_SESSIONS; entries whose session is no longer
+                                          running with a fresh heartbeat are pruned when counting
   chat:conversation:{cid}:active  STRING  session id while an answer for that conversation runs (SET NX: one
                                           running turn per conversation; a second gets HTTP 409)
 
@@ -40,7 +43,7 @@ from config.base import settings
 from dto.chat import ChatAskDTO
 from service import Services
 from service.conversation_repository import parse_conversation_id
-from util.http_errors import ConflictError, NotFoundError
+from util.http_errors import ConflictError, NotFoundError, TooManyRequestsError
 
 TERMINAL_EVENTS = frozenset({"done", "error", "cancelled"})
 HEARTBEAT_SECONDS = 2.0
@@ -49,10 +52,14 @@ READ_BLOCK_MS = 2000
 STREAM_MAXLEN = 10_000
 
 TURN_RUNNING_MESSAGE = "A question is already being answered in this conversation."
+BUSY_MESSAGE = "Too many answers are being generated right now, try again shortly."
+BUSY_RETRY_AFTER_SECONDS = 5
 
 # Compare-and-delete / compare-and-swap, atomic on the Redis server.
 _RELEASE_LUA = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0"
 _REPLACE_LUA = "if redis.call('get', KEYS[1]) == ARGV[1] then redis.call('set', KEYS[1], ARGV[2], 'EX', ARGV[3]) return 1 end return 0"
+
+_RUNNING_KEY = "chat:sessions:running"
 
 _EVENT_ID_RE = re.compile(r"^(0|\d{1,20}-\d{1,20})$")
 
@@ -149,6 +156,25 @@ class RedisSessionStore:
     async def cancel_requested(self, session_id: str) -> bool:
         return bool(await self.client.exists(self._cancel_key(session_id)))
 
+    async def register_running(self, session_id: str):
+        await self.client.zadd(_RUNNING_KEY, {session_id: time.time()})
+
+    async def unregister_running(self, session_id: str):
+        await self.client.zrem(_RUNNING_KEY, session_id)
+
+    async def count_running(self) -> int:
+        """Sessions that are running with a fresh heartbeat; dead or finished entries are pruned."""
+        stale_after = settings.CHAT_SESSION_STALE_SECONDS
+        live = 0
+        for session_id in await self.client.zrange(_RUNNING_KEY, 0, -1):
+            meta = await self.meta(session_id)
+            fresh = time.time() - float(meta.get("heartbeat") or 0) <= stale_after
+            if meta.get("status") == "running" and fresh:
+                live += 1
+            else:
+                await self.client.zrem(_RUNNING_KEY, session_id)
+        return live
+
     async def claim_active(self, conversation_id: str, session_id: str) -> bool:
         """Atomically take the conversation (SET NX EX). False if another turn holds it."""
         return bool(await self.client.set(self._active_key(conversation_id), session_id, nx=True, ex=self.ttl))
@@ -197,14 +223,21 @@ class ChatSessions:
         start(). A new conversation needs no claim (it is claimed once it exists). A claim whose
         session died (finished, or heartbeat stale) is taken over.
         """
+        cap = settings.CHAT_MAX_CONCURRENT_SESSIONS
+        # Soft cap: the check and the registration below are not atomic, so a burst of simultaneous
+        # claims can overshoot it by a few; it exists to bound load, not to be exact.
+        if cap > 0 and await self.store.count_running() >= cap:
+            raise TooManyRequestsError(BUSY_MESSAGE, retry_after=BUSY_RETRY_AFTER_SECONDS)
         session_id = str(uuid.uuid4())
         conversation_id = self._requested_conversation(dto)
-        if conversation_id:
-            # Meta (status + heartbeat) first: a claim leaked before start() runs (client gone, process
-            # died) then has no live heartbeat and is taken over after CHAT_SESSION_STALE_SECONDS.
-            await self.store.create(session_id)
-            if not await self._claim(conversation_id, session_id):
-                raise ConflictError(TURN_RUNNING_MESSAGE)
+        # Meta (status + heartbeat) first: a claim leaked before start() runs (client gone, process
+        # died) then has no live heartbeat and is taken over / stops counting after
+        # CHAT_SESSION_STALE_SECONDS.
+        await self.store.create(session_id)
+        await self.store.register_running(session_id)
+        if conversation_id and not await self._claim(conversation_id, session_id):
+            await self._unregister(session_id)
+            raise ConflictError(TURN_RUNNING_MESSAGE)
         return session_id
 
     async def _claim(self, conversation_id: str, session_id: str) -> bool:
@@ -234,6 +267,7 @@ class ChatSessions:
             await self.store.append(session_id, "session", json.dumps({"sessionId": session_id}))
         except BaseException:
             await self._release(self._requested_conversation(dto), session_id)
+            await self._unregister(session_id)
             raise
         task = asyncio.create_task(self._run(session_id, dto), name=f"chat-session-{session_id}")
         self._tasks[session_id] = task
@@ -272,6 +306,13 @@ class ChatSessions:
             # Always release the claim (finished, cancelled or failed), even if the status write failed.
             await self._release(requested, session_id)
             await self._release(conversation_id, session_id)
+            await self._unregister(session_id)
+
+    async def _unregister(self, session_id: str):
+        try:
+            await self.store.unregister_running(session_id)
+        except Exception:
+            logger.exception("Could not unregister chat session {id}", id=session_id)
 
     async def _release(self, conversation_id: Optional[str], session_id: str):
         if not conversation_id:

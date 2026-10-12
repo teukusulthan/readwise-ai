@@ -220,6 +220,20 @@ If you need to use these modules, you can access the documentation for the Auth,
 
 Failures use this same envelope as the **top-level** body (HTTP status = `metaData.responseCode`); response headers such as `WWW-Authenticate` are preserved. Plain errors without an envelope (e.g. framework 404/405) and request-validation errors (`422`) keep FastAPI's default `{"detail": ...}` shape. Clients should read `metaData.message` first and fall back to `detail`. SSE endpoints report failures as `error` events instead.
 
+### Rate limits and capacity (HTTP 429)
+
+`429 Too Many Requests` uses the error envelope and always carries a `Retry-After` header (seconds). Causes:
+
+| Route | Limit | Setting |
+|-------|-------|---------|
+| `POST /book/upload` (new book or attach PDF) | 20 / min per client | `BE_RATE_LIMIT_UPLOAD_PER_MINUTE` |
+| `POST /chat/ask`, `POST /chat/stream` | 30 / min per client | `BE_RATE_LIMIT_CHAT_PER_MINUTE` |
+| `POST /search/query` | 60 / min per client | `BE_RATE_LIMIT_SEARCH_PER_MINUTE` |
+| `POST /book/upload`, `POST /book/reindex` | message "Indexing queue is full, try again later." while `BE_INGESTION_MAX_QUEUED` (50) books are `queued` | `BE_INGESTION_MAX_QUEUED` |
+| `POST /chat/stream` | "Too many answers are being generated right now, try again shortly." while `BE_CHAT_MAX_CONCURRENT_SESSIONS` (20) answers run | `BE_CHAT_MAX_CONCURRENT_SESSIONS` |
+
+"Per client" = the authenticated user (valid access token) or else the client IP; `X-Forwarded-For` is only believed from peers listed in `BE_TRUSTED_PROXIES`. A budget of 0 disables it. These sit on top of the global per-IP limit (`BE_RATE_LIMIT`, plain `{"detail": "Too many requests"}`).
+
 ---
 
 ## Pagination & Filter Standard (FindDTO)

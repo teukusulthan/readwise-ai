@@ -8,13 +8,14 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from loguru import logger
 
 from dto.chat import ChatAskDTO
+from middleware.route_limits import route_limit
 from models.base_response import BaseResponse
 from models.metadata import MetadataSuccess
 from service.chat_session import ChatSessions, StoredEvent
 from service.conversation import Conversation
 from service.rag import Rag
 from util.helper import get_execution_time, is_include_schema, router_param_builder
-from util.http_errors import ConflictError, ServiceUnavailableError, to_http_exception
+from util.http_errors import ConflictError, ServiceUnavailableError, TooManyRequestsError, to_http_exception
 
 obj = Rag()
 conversations = Conversation(rag=obj)
@@ -29,7 +30,7 @@ def _sse(item: StoredEvent) -> ServerSentEvent:
     return ServerSentEvent(id=item.id or None, event=item.event, raw_data=item.data)
 
 
-@router.post("/ask", include_in_schema=is_include_schema(tag, "ask"))
+@router.post("/ask", include_in_schema=is_include_schema(tag, "ask"), dependencies=[Depends(route_limit("chat"))])
 def ask(dto: ChatAskDTO):
     """
     Answer a question from indexed book text, with numbered sources (whole answer at once).
@@ -48,14 +49,15 @@ async def claim_turn(dto: ChatAskDTO) -> str:
     start_time = time()
     try:
         return await sessions.claim(dto)
-    except ConflictError as error:
+    except (ConflictError, TooManyRequestsError) as error:
         raise to_http_exception(error, start_time)
     except Exception:
         logger.exception("Could not claim the conversation")
         raise to_http_exception(ServiceUnavailableError("Chat sessions are unavailable (is Redis running?)."), start_time)
 
 
-@router.post("/stream", response_class=EventSourceResponse, include_in_schema=is_include_schema(tag, "stream"))
+@router.post("/stream", response_class=EventSourceResponse, include_in_schema=is_include_schema(tag, "stream"),
+             dependencies=[Depends(route_limit("chat"))])
 async def stream(dto: ChatAskDTO, session_id: str = Depends(claim_turn)) -> AsyncIterable[ServerSentEvent]:
     """
     One saved chat turn as Server-Sent Events (not wrapped in BaseResponse). The answer is generated in a
@@ -63,7 +65,8 @@ async def stream(dto: ChatAskDTO, session_id: str = Depends(claim_turn)) -> Asyn
     `session` {sessionId} → `conversation` {id, title, …} → `status` {stage} → `sources` → `delta` {text}…
     → `done` (/chat/ask payload + conversationId, messageId) | `error` {message, code} | `cancelled`.
     Reconnect with GET /chat/stream/{sessionId}?after=<last id>. Omit `conversationId` to start a new conversation.
-    HTTP 409 (before any stream) if a question is already being answered in that conversation.
+    HTTP 409 (before any stream) if a question is already being answered in that conversation; HTTP 429 (+ Retry-After)
+    when the per-client chat budget or the server-wide concurrent-answers cap is exceeded.
     """
     try:
         await sessions.start(dto, session_id)

@@ -84,6 +84,14 @@ class BaseSetting(BaseSettings):
 
     RATE_LIMIT: int = Field(default=100000)
     RATE_LIMIT_WINDOW: int = Field(default=60)
+    # Per-route budgets (requests per minute, per authenticated user or else per client IP), on top of
+    # the global limit above. 0 disables that route's limit. See middleware/route_limits.py.
+    RATE_LIMIT_UPLOAD_PER_MINUTE: int = Field(default=20)
+    RATE_LIMIT_CHAT_PER_MINUTE: int = Field(default=30)
+    RATE_LIMIT_SEARCH_PER_MINUTE: int = Field(default=60)
+    # Comma-separated CIDRs/IPs of reverse proxies whose X-Forwarded-For header is believed
+    # (empty = never trust it; the socket peer is the client). See util/client_ip.py.
+    TRUSTED_PROXIES: str = Field(default="")
     ACCOUNT_LOCK_TIME: int = Field(default=600)
     ACCOUNT_FAIL_LIMIT: int = Field(default=5)
 
@@ -149,6 +157,8 @@ class BaseSetting(BaseSettings):
     CHUNK_TOKENIZER: str = Field(default="Qwen/Qwen3-Embedding-0.6B")
     # Docling is CPU/RAM heavy — keep concurrent ingestions low.
     INGESTION_WORKERS: int = Field(default=1)
+    # Upload/reindex is refused with HTTP 429 while this many books already wait in `queued` (0 = no cap).
+    INGESTION_MAX_QUEUED: int = Field(default=50)
     DOCLING_DO_OCR: bool = Field(default=False)
     DOCLING_DO_TABLE_STRUCTURE: bool = Field(default=True)
     # Parse big PDFs in windows of N pages so memory stays bounded (a 152-page book parsed in one
@@ -175,6 +185,9 @@ class BaseSetting(BaseSettings):
     # "running" session counts as dead (its server process stopped).
     CHAT_SESSION_TTL_SECONDS: int = Field(default=3600)
     CHAT_SESSION_STALE_SECONDS: int = Field(default=30)
+    # Answers generated at the same time (across all users and workers); beyond it a new chat turn gets
+    # HTTP 429 (0 = no cap).
+    CHAT_MAX_CONCURRENT_SESSIONS: int = Field(default=20)
 
     # Chat: earlier question/answer pairs given to the LLM so follow-up questions make sense.
     CHAT_HISTORY_TURNS: int = Field(default=3)
@@ -203,6 +216,18 @@ class BaseSetting(BaseSettings):
         # `BE_SMTP_PORT=` in .env means "unset", not an invalid integer.
         if value == "" and field.allow_none:
             return None
+        return value
+
+    @validator("TRUSTED_PROXIES")
+    def trusted_proxies_are_cidrs(cls, value):
+        import ipaddress
+
+        for item in (value or "").split(","):
+            if item.strip():
+                try:
+                    ipaddress.ip_network(item.strip(), strict=False)
+                except ValueError:
+                    raise ValueError(f"{ENV_PREFIX}TRUSTED_PROXIES: {item.strip()!r} is not an IP address or CIDR") from None
         return value
 
     @root_validator(skip_on_failure=True)

@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Per-route rate limits and bounded ingestion queue (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/middleware/route_limits.py`, `apps/backend/middleware/rate_limiter.py`, `apps/backend/util/client_ip.py`, `apps/backend/util/http_errors.py`, `apps/backend/service/chat_session.py`, `apps/backend/service/book.py`, `apps/backend/service/book_repository.py`, `apps/backend/router/{book,chat,search}.py`, `apps/backend/config/base.py`, `apps/backend/.env.example`, `apps/backend/tests/unit/test_rate_limits.py`, `docs/api-spec.md`, `docs/architecture.md`
+> Per-route fixed-window budgets (per minute, per user when a valid access token is sent, else per client IP) on top of the global limiter: `POST /book/upload` `BE_RATE_LIMIT_UPLOAD_PER_MINUTE=20`, `POST /chat/ask` + `/chat/stream` `BE_RATE_LIMIT_CHAT_PER_MINUTE=30`, `POST /search/query` `BE_RATE_LIMIT_SEARCH_PER_MINUTE=60` (0 disables; fails open if Redis is down). Over budget: HTTP 429, error envelope, `Retry-After`. `BE_TRUSTED_PROXIES` (CIDR list, default empty): only requests from those peers have `X-Forwarded-For` honoured (right-most non-trusted address), also for the global limiter. `BE_INGESTION_MAX_QUEUED=50`: upload/attach/reindex get 429 "Indexing queue is full, try again later." while that many books are `queued`. `BE_CHAT_MAX_CONCURRENT_SESSIONS=20`: a new chat turn gets 429 when that many answers are running (Redis ZSET `chat:sessions:running`, entries without a fresh heartbeat are pruned). The queue and session caps are soft (check-then-insert) and can overshoot slightly under a simultaneous burst.
+
 ### 2026-10-12 · LLM timeouts and honest error codes (no sprint) · ✅ Done
 
 **Event:** Files modified

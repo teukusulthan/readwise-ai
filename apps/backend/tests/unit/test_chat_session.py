@@ -19,6 +19,7 @@ class MemorySessionStore:
         self.metas: dict[str, dict] = {}
         self.cancels: set[str] = set()
         self.active: dict[str, str] = {}
+        self.running: set[str] = set()
         self._seq = 0
         self._changed = asyncio.Event()
 
@@ -59,6 +60,15 @@ class MemorySessionStore:
 
     async def cancel_requested(self, session_id):
         return session_id in self.cancels
+
+    async def register_running(self, session_id):
+        self.running.add(session_id)
+
+    async def unregister_running(self, session_id):
+        self.running.discard(session_id)
+
+    async def count_running(self):
+        return len(self.running)
 
     async def claim_active(self, conversation_id, session_id):
         if conversation_id in self.active:

@@ -170,6 +170,11 @@ class BookRepository:
         _check_columns(fields)
         return self._update_where(book_id, fields, condition=sql.SQL("file_sha256 IS NULL"))
 
+    def count_queued(self) -> int:
+        """Books waiting for an ingestion worker (the real backlog, across processes)."""
+        with self.pool.connection() as conn:
+            return conn.execute("SELECT count(*) AS n FROM books WHERE ingestion_status = 'queued'").fetchone()["n"]
+
     def fail_interrupted(self) -> int:
         """Mark jobs left `queued`/`processing` by a previous process as failed (they died with it)."""
         with self.pool.connection() as conn:
