@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Skeleton } from '@/components/ui/skeleton'
 import { PerfectScrollArea } from '@/components/wrappers/PerfectScrollArea'
 import { smoothScrollTo } from '@/components/wrappers/inertia-scroll'
+import { useActiveTurn } from '@/features/library/chat/hooks/useActiveTurn'
 import { useAskStream } from '@/features/library/chat/hooks/useAskStream'
 import { useConversation } from '@/features/library/chat/hooks/useConversations'
 import { useIndexedBooks } from '@/features/library/chat/hooks/useIndexedBooks'
@@ -15,7 +16,6 @@ import type { TChatMessage } from '@/features/library/chat/types/conversation.ty
 import { pendingVisibility } from '@/features/library/chat/utils/chat-thread'
 import { CONVERSATION_KEYS } from '@/features/library/constants/query-keys'
 import type { IBook } from '@/features/library/types/book.types'
-import { chatService } from '@/services/chat.service'
 import { renderIcon } from '@/utils/icon-renderer'
 import { AssistantMessage, type IAssistantView } from './AssistantMessage'
 import { ChatComposer } from './ChatComposer'
@@ -35,12 +35,15 @@ export function ChatView() {
   const queryClient = useQueryClient()
   const indexedBooks = useIndexedBooks()
   const conversation = useConversation(conversationId)
-  const { state, ask, attach, cancel, detach, reset, isStreaming } = useAskStream()
+  const activeTurn = useActiveTurn(conversationId)
+  const { state, ask, attach, cancel, detach, reset, isStreaming, isStopping } = useAskStream()
 
   const [selectedIds, setSelectedIds] = useState<string[]>(() => searchParams.getAll('bookId'))
   const [pendingFrom, setPendingFrom] = useState(0)
   const [draft, setDraft] = useState<{ text: string; key: number }>()
   const [historyOpen, setHistoryOpen] = useState(false)
+  /** Fetching the saved copy of the previous turn before a new question is sent. */
+  const [preparingSend, setPreparingSend] = useState(false)
   /** Changes only when the user opens another conversation (not when a new chat gets its URL): the thread fades in. */
   const [threadKey, setThreadKey] = useState(conversationId ?? 'new')
   /** A finished turn whose saved copy should be fetched once its text is fully revealed. */
@@ -52,6 +55,7 @@ export function ChatView() {
   const attachCheckedFor = useRef<string | null>(null)
   const routeConversationId = useRef(conversationId)
   routeConversationId.current = conversationId
+  const previousConversationId = useRef(conversationId)
   const scrollRef = useRef<HTMLElement | null>(null)
   const stickToBottom = useRef(true)
 
@@ -63,12 +67,19 @@ export function ChatView() {
   // disconnected: the server finishes and saves that answer, and re-opening re-attaches to it.
   useEffect(() => {
     stickToBottom.current = true
+    const previous = previousConversationId.current
+    previousConversationId.current = conversationId
     if (conversationId && conversationId === ownConversationId.current) return
+    // Its cached thread misses whatever happens server-side meanwhile (the running answer, or
+    // everything after a new chat's empty seed): fetch it again when the user comes back.
+    if (previous && previous !== conversationId) void queryClient.invalidateQueries({ queryKey: CONVERSATION_KEYS.detail(previous) })
     ownConversationId.current = null
+    restoredScopeFor.current = null
+    attachCheckedFor.current = null
     setThreadKey(conversationId ?? 'new')
     detach()
     reset()
-  }, [conversationId, detach, reset])
+  }, [conversationId, detach, reset, queryClient])
 
   // Reopening a conversation restores the books it was asking.
   useEffect(() => {
@@ -78,25 +89,24 @@ export function ChatView() {
     if (data.id !== ownConversationId.current) setSelectedIds(data.bookIds)
   }, [conversation.data])
 
-  // Opening (or reloading) a conversation whose answer is still being generated: re-attach to it.
+  // Opening (or reloading, or coming back to) a conversation whose answer is still being
+  // generated: re-attach to it. Waits for this visit's fresh thread and active-turn answer.
+  const activeTurnData = activeTurn.data
+  const checkingActive = conversation.isFetching || activeTurn.isFetching
   useEffect(() => {
     const data = conversation.data
-    if (!data || attachCheckedFor.current === data.id || data.id === ownConversationId.current) return
+    if (!data || !activeTurnData || checkingActive) return
+    if (attachCheckedFor.current === data.id || data.id === ownConversationId.current) return
     attachCheckedFor.current = data.id
-    chatService
-      .active(data.id)
-      .then((res) => {
-        if (!res.data?.active || routeConversationId.current !== data.id || ownConversationId.current === data.id) return
-        const index = data.messages.map((message) => message.role).lastIndexOf('user')
-        ownConversationId.current = data.id
-        stickToBottom.current = true
-        setPendingFrom(Math.max(index, 0))
-        void attach(res.data.sessionId, index >= 0 ? data.messages[index].content : '', data.id, {
-          onSettled: (id) => setSettled({ conversationId: id }),
-        })
-      })
-      .catch(() => undefined) // nothing running, or Redis unavailable: just show the saved history
-  }, [conversation.data, attach])
+    if (!activeTurnData.active) return
+    const index = data.messages.map((message) => message.role).lastIndexOf('user')
+    ownConversationId.current = data.id
+    stickToBottom.current = true
+    setPendingFrom(Math.max(index, 0))
+    void attach(activeTurnData.sessionId, index >= 0 ? data.messages[index].content : '', data.id, {
+      onSettled: (id) => setSettled({ conversationId: id }),
+    })
+  }, [conversation.data, activeTurnData, checkingActive, attach])
 
   const refreshHistory = useCallback(
     (id: string | null) => {
@@ -106,9 +116,19 @@ export function ChatView() {
     [queryClient],
   )
 
-  const send = (question: string) => {
+  const send = async (question: string) => {
     stickToBottom.current = true
-    setPendingFrom(saved.length)
+    let from = saved.length
+    // The previous turn is still drawn only locally (e.g. just stopped): load its saved copy
+    // first, so it stays on screen and the new question is placed after it.
+    if (conversationId && live && (showQuestion || showAnswer)) {
+      setPreparingSend(true)
+      const refreshed = await conversation.refetch()
+      setPreparingSend(false)
+      if (routeConversationId.current !== conversationId) return
+      from = refreshed.data?.messages.length ?? from
+    }
+    setPendingFrom(from)
     void ask(
       { question, bookIds: selectedIds.length ? selectedIds : undefined, conversationId },
       {
@@ -127,7 +147,7 @@ export function ChatView() {
   }
 
   // The server stops generating, saves the partial answer and ends the stream with `cancelled`;
-  // onSettled then refreshes the history.
+  // onSettled then refreshes the history. Send stays blocked until then (isStopping).
   const stop = () => cancel()
 
   const startNewChat = () => {
@@ -289,8 +309,9 @@ export function ChatView() {
               selectedIds={selectedIds}
               onSelectedIdsChange={setSelectedIds}
               isStreaming={isStreaming}
+              sendBlocked={isStopping || preparingSend}
               disabled={indexedBooks.data?.length === 0 || notFound}
-              onSend={send}
+              onSend={(question) => void send(question)}
               onStop={stop}
               draft={draft}
             />

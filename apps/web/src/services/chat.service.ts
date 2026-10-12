@@ -11,9 +11,21 @@ interface IStreamOptions {
   onEvent: (event: TChatStreamEvent, id: string) => void
 }
 
-/** Map one raw SSE frame to a typed chat event (unknown event names are ignored). */
-export function toChatStreamEvent({ event, data }: ISseMessage): TChatStreamEvent | null {
-  const payload = JSON.parse(data)
+/**
+ * Map one raw SSE frame to a typed chat event. Unknown event names are ignored; a frame whose
+ * data is not a JSON object is skipped with a warning (one bad frame must not end the answer).
+ */
+export function toChatStreamEvent({ event, data, id }: ISseMessage): TChatStreamEvent | null {
+  let payload
+  try {
+    payload = JSON.parse(data)
+  } catch {
+    payload = undefined
+  }
+  if (typeof payload !== 'object' || payload === null) {
+    console.warn(`Skipped a "${event}" stream frame${id ? ` (id ${id})` : ''}: its data is not a JSON object.`)
+    return null
+  }
   switch (event) {
     case 'session':
       return typeof payload.sessionId === 'string' ? { type: 'session', sessionId: payload.sessionId } : null

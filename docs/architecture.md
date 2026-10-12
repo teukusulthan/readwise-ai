@@ -154,7 +154,8 @@ POST /chat/stream ──► ChatSessions.start(): session id + background task �
 browser ◄── SSE (id = Redis stream entry id) ◄── ChatSessions.events(): XREAD BLOCK ◄── chat:session:{id}:events
    │ connection drops (Wi-Fi, reload, switching chats): the task keeps generating and saving
    └──► GET /chat/stream/{id}?after=<last id>  → exactly the missed events, then live (auto-retry 1-8 s, 6×)
-        GET /chat/active?conversationId=       → after a reload: re-attach to the running answer (replay from 0)
+        GET /chat/active?conversationId=       → after a reload or on coming back to the chat: re-attach to the
+                                                 running answer (replay from 0)
         POST /chat/stream/{id}/cancel          → Stop: the runner is cancelled, partial answer saved as "stopped",
                                                  stream ends with "cancelled" (flag in Redis works across workers)
 ```
@@ -164,6 +165,11 @@ browser ◄── SSE (id = Redis stream entry id) ◄── ChatSessions.events
 The runner refreshes `heartbeat` every 2 s; a reader that sees a "running" session without heartbeat for
 `BE_CHAT_SESSION_STALE_SECONDS` (30) reports it as interrupted instead of waiting forever. On shutdown, running
 answers are cancelled so their partial text is saved. Web: `useAskStream` (`ask`, `attach`, `cancel`, `detach`).
+Web specifics: leaving a conversation marks its cached thread stale and every visit asks `GET /chat/active` afresh
+(`useActiveTurn`, never cached), so coming back re-attaches. After Stop, Send stays disabled until the stream ends
+with `cancelled` (or ends at all; 5 s fallback). Asking again while the previous turn is only drawn locally refetches
+the thread first so that turn stays visible. A frame whose data is not a JSON object is skipped with a console
+warning, and `streamSse` cancels the body reader on every exit (end, abort, error), which closes the connection.
 
 ### 4.4 Catalog
 

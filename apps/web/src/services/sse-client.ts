@@ -106,6 +106,8 @@ export async function streamSse<TBody>({ path, body, signal, onMessage }: IStrea
     parser.push(decoder.decode())
     parser.flush()
   } finally {
+    // Every exit (end, abort, a throwing handler) closes the connection, not just the lock.
+    reader.cancel().catch(() => undefined)
     reader.releaseLock()
   }
 }

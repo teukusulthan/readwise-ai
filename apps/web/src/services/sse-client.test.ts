@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { createSseParser, type ISseMessage } from './sse-client'
+import { createSseParser, streamSse, type ISseMessage } from './sse-client'
 
 function parseWithIds(chunks: string[]): ISseMessage[] {
   const messages: ISseMessage[] = []
@@ -45,5 +45,74 @@ describe('createSseParser', () => {
       { event: 'delta', data: '{"text":"a"}', id: '1760-0' },
       { event: 'done', data: '{}', id: '' },
     ])
+  })
+})
+
+/** A fetch Response whose body hands out `chunks`, then waits (like a live stream) until aborted. */
+function streamingResponse(chunks: string[], signal?: AbortSignal) {
+  const encoder = new TextEncoder()
+  const queue = chunks.map((chunk) => encoder.encode(chunk))
+  const reader = {
+    read: vi.fn(() => {
+      const value = queue.shift()
+      if (value) return Promise.resolve({ done: false as const, value })
+      return new Promise<never>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')), { once: true })
+      })
+    }),
+    cancel: vi.fn(() => Promise.resolve()),
+    releaseLock: vi.fn(),
+  }
+  const response = {
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    headers: new Headers({ 'content-type': 'text/event-stream' }),
+    body: { getReader: () => reader },
+  }
+  return { response, reader }
+}
+
+describe('streamSse', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('cancels the reader when the stream is aborted, not just releases the lock', async () => {
+    const controller = new AbortController()
+    const { response, reader } = streamingResponse(['event: delta\ndata: {"text":"a"}\n\n'], controller.signal)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+    const onMessage = vi.fn()
+
+    const streaming = streamSse({ path: '/chat/stream', body: {}, signal: controller.signal, onMessage })
+    await vi.waitFor(() => expect(onMessage).toHaveBeenCalledTimes(1))
+    controller.abort()
+
+    await expect(streaming).rejects.toThrow(/aborted/)
+    expect(reader.cancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels the reader when a frame handler throws', async () => {
+    const { response, reader } = streamingResponse(['event: delta\ndata: {"text":"a"}\n\n'])
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+
+    const streaming = streamSse({
+      path: '/chat/stream',
+      onMessage: () => {
+        throw new Error('handler failed')
+      },
+    })
+
+    await expect(streaming).rejects.toThrow('handler failed')
+    expect(reader.cancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels the reader after a stream that ended normally', async () => {
+    const { response, reader } = streamingResponse([])
+    reader.read.mockResolvedValueOnce({ done: true, value: undefined } as never)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+
+    await streamSse({ path: '/chat/stream', onMessage: vi.fn() })
+    expect(reader.cancel).toHaveBeenCalledTimes(1)
   })
 })

@@ -15,6 +15,8 @@ interface ChatComposerProps {
   selectedIds: string[]
   onSelectedIdsChange: (ids: string[]) => void
   isStreaming: boolean
+  /** Send is held back (e.g. a stopped answer is still closing); typing stays possible. */
+  sendBlocked?: boolean
   disabled: boolean
   onSend: (question: string) => void
   onStop: () => void
@@ -32,6 +34,7 @@ export function ChatComposer({
   selectedIds,
   onSelectedIdsChange,
   isStreaming,
+  sendBlocked = false,
   disabled,
   onSend,
   onStop,
@@ -57,7 +60,7 @@ export function ChatComposer({
   }, [text])
 
   const submit = () => {
-    if (isStreaming || disabled) return
+    if (isStreaming || sendBlocked || disabled) return
     const parsed = askSchema.safeParse({ question: text })
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? 'Invalid question')
@@ -151,7 +154,7 @@ export function ChatComposer({
               <button
                 type="submit"
                 aria-label="Send"
-                disabled={disabled || !text.trim()}
+                disabled={disabled || sendBlocked || !text.trim()}
                 className="group/send flex size-10 shrink-0 animate-pop-in items-center justify-center rounded-xl bg-primary text-font-on-accent shadow-sm transition-[background-color,opacity,scale,box-shadow] duration-200 ease-fluid not-disabled:hover:bg-primary-bold not-disabled:hover:shadow-md not-disabled:active:scale-90 not-disabled:active:duration-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
               >
                 {renderIcon({ icon: 'arrow-up', weight: 'bold', className: 'text-[18px] transition-transform duration-200 ease-fluid group-hover/send:-translate-y-0.5' })}

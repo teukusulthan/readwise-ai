@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Chat survives navigation, Stop, and bad stream frames (no sprint) · ✅ Done
+
+**Event:** Task completed
+**Files:** `apps/web/src/features/library/chat/components/ChatView.tsx`, `apps/web/src/features/library/chat/components/ChatComposer.tsx`, `apps/web/src/features/library/chat/hooks/useActiveTurn.ts`, `apps/web/src/features/library/chat/hooks/useAskStream.ts`, `apps/web/src/features/library/constants/query-keys.ts`, `apps/web/src/services/chat.service.ts`, `apps/web/src/services/sse-client.ts`, tests (`ChatView.test.tsx`, `useAskStream.stop.test.ts`, `chat.service.test.ts`, `sse-client.test.ts`)
+> Leaving a conversation marks its cached thread stale and resets the per-conversation refs; the "is an answer running?" check is now a never-cached `useActiveTurn` query, so coming back re-attaches to a running turn (and a new chat no longer comes back empty). After Stop, Send stays disabled until the stream reports `cancelled` or ends (5 s fallback); asking again first refetches the thread so the stopped turn stays visible. An SSE frame with unparseable JSON is skipped with `console.warn` instead of failing the stream, and the reader is `cancel()`ed on every exit path.
+
 ### 2026-10-12 · Visible progress while the model thinks (no sprint) · ✅ Done
 
 **Event:** Task completed
