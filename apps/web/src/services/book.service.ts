@@ -3,6 +3,7 @@ import type {
   IBookCreatePayload,
   IBookDeleteResult,
   IBookListParams,
+  IBookUpdatePayload,
   IBookUploadPayload,
   IExternalBook,
 } from '@/features/library/types/book.types'
@@ -17,6 +18,9 @@ export const bookService = {
   getOne: (id: string): Promise<ApiResponse<IBook>> => apiRequests.get<IBook>(API_ENDPOINTS.BOOK.GET_ONE, { id }),
 
   add: (payload: IBookCreatePayload): Promise<ApiResponse<IBook>> => apiRequests.post<IBook, IBookCreatePayload>(API_ENDPOINTS.BOOK.ADD, payload),
+
+  /** PUT /book/update — `id` travels in the body and the fields replace the stored metadata. */
+  update: (payload: IBookUpdatePayload): Promise<ApiResponse<IBook>> => apiRequests.put<IBook, IBookUpdatePayload>(API_ENDPOINTS.BOOK.UPDATE, payload),
 
   remove: (id: string): Promise<ApiResponse<IBookDeleteResult>> => apiRequests.delete<IBookDeleteResult>(API_ENDPOINTS.BOOK.DELETE, { id }),
 

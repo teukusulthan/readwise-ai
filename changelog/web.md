@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Edit book details (no sprint) · ✅ Done
+
+**Event:** Task completed
+**Files:** `apps/web/src/services/api-endpoints.ts`, `apps/web/src/services/book.service.ts`, `apps/web/src/features/library/types/book.types.ts`, `apps/web/src/features/library/books/schemas/edit-book.schema.ts`, `apps/web/src/features/library/books/hooks/useUpdateBook.ts`, `apps/web/src/features/library/books/components/EditBookDialog.tsx`, `apps/web/src/features/library/books/components/BookDetailView.tsx`
+> "Edit details" button on the book detail page opens a prefilled dialog (title, authors, description, ISBN, publisher, year, language, subjects, cover URL) that calls `PUT /book/update`; server errors (bad/duplicate ISBN) show inline.
+
 ### 2026-10-12 · Error envelope top-level (no sprint) · ✅ Done
 
 **Event:** Files modified

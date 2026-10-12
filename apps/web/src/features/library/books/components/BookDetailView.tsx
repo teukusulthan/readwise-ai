@@ -8,6 +8,7 @@ import { renderIcon } from '@/utils/icon-renderer'
 import { BookDocumentPanel } from './BookDocumentPanel'
 import { BookMetadata } from './BookMetadata'
 import { DeleteBookDialog } from './DeleteBookDialog'
+import { EditBookDialog } from './EditBookDialog'
 
 interface BookDetailViewProps {
   bookId: string | undefined
@@ -26,7 +27,12 @@ export function BookDetailView({ bookId }: BookDetailViewProps) {
             Back to catalog
           </Link>
         </Button>
-        {book && <DeleteBookDialog book={book} disabled={BUSY_STATUSES.includes(book.ingestion.status)} onDeleted={() => navigate('/books')} />}
+        {book && (
+          <div className="flex items-center gap-2">
+            <EditBookDialog book={book} />
+            <DeleteBookDialog book={book} disabled={BUSY_STATUSES.includes(book.ingestion.status)} onDeleted={() => navigate('/books')} />
+          </div>
+        )}
       </div>
 
       {isLoading && (

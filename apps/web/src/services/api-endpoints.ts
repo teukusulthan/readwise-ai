@@ -26,6 +26,7 @@ export const API_ENDPOINTS = {
     GET_ALL: `${SUFFIX_BASE}/book/get-all`,
     GET_ONE: `${SUFFIX_BASE}/book/get-one`,
     ADD: `${SUFFIX_BASE}/book/add`,
+    UPDATE: `${SUFFIX_BASE}/book/update`,
     DELETE: `${SUFFIX_BASE}/book/delete`,
     UPLOAD: `${SUFFIX_BASE}/book/upload`,
     REINDEX: `${SUFFIX_BASE}/book/reindex`,

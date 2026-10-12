@@ -8,6 +8,7 @@ vi.mock('./api-factory.service', () => ({
   apiRequests: {
     get: vi.fn().mockResolvedValue({ data: null }),
     post: vi.fn().mockResolvedValue({ data: null }),
+    put: vi.fn().mockResolvedValue({ data: null }),
     delete: vi.fn().mockResolvedValue({ data: null }),
     upload: vi.fn().mockResolvedValue({ data: null }),
   },
@@ -21,6 +22,13 @@ describe('bookService', () => {
     await bookService.getAll(params)
     expect(apiRequests.post).toHaveBeenCalledWith(API_ENDPOINTS.BOOK.GET_ALL, params)
     expect(API_ENDPOINTS.BOOK.GET_ALL).toBe('/apps/book/get-all')
+  })
+
+  it('updates with PUT /book/update and the id in the body', async () => {
+    const payload = { id: 'abc', title: 'Dune', authors: ['Frank Herbert'], subjects: [] }
+    await bookService.update(payload)
+    expect(apiRequests.put).toHaveBeenCalledWith(API_ENDPOINTS.BOOK.UPDATE, payload)
+    expect(API_ENDPOINTS.BOOK.UPDATE).toBe('/apps/book/update')
   })
 
   it('reads and deletes by ?id= query parameter', async () => {

@@ -62,6 +62,10 @@ export interface IBookCreatePayload {
   subjects: string[]
 }
 
+export interface IBookUpdatePayload extends IBookCreatePayload {
+  id: string
+}
+
 export interface IBookUploadPayload {
   file: File
   bookId?: string
