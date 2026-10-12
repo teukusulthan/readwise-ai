@@ -25,6 +25,8 @@ export const apiRequests = {
   upload: <T>(url: string, formData: FormData, onProgress?: (percent: number) => void): Promise<ApiResponse<T>> =>
     apiClient.post<ApiResponse<T>, ApiResponse<T>, FormData>(url, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      // Large PDFs on slow links must not hit the 30 s default; the backend bounds the upload size.
+      timeout: 0,
       onUploadProgress: (e) => {
         if (onProgress && e.total) {
           onProgress(Math.round((e.loaded * 100) / e.total))

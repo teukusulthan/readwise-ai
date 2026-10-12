@@ -42,4 +42,31 @@ describe('apiRequests', () => {
     expect(lastConfig).toBeDefined()
     expect(axios.getUri(lastConfig)).toBe('/api/v1/apps/auth/login')
   })
+
+  it('keeps the 30 s timeout for ordinary requests but disables it for multipart uploads', async () => {
+    await apiRequests.get('/x')
+    expect(lastConfig?.timeout).toBe(30000)
+
+    await apiRequests.upload('/apps/book/upload', new FormData())
+    expect(lastConfig?.timeout).toBe(0)
+  })
+
+  it('rejects failed requests with an Error carrying the backend message and status', async () => {
+    apiClient.defaults.adapter = async (config) =>
+      Promise.reject(
+        new axios.AxiosError('Request failed with status code 409', 'ERR_BAD_REQUEST', config, null, {
+          data: { metaData: { status: false, responseCode: 409, message: 'This PDF is already in the library' } },
+          status: 409,
+          statusText: 'Conflict',
+          headers: {},
+          config,
+        }),
+      )
+
+    const error = await apiRequests.upload('/apps/book/upload', new FormData()).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toBe('This PDF is already in the library')
+    expect((error as { status?: number }).status).toBe(409)
+    expect((error as { response?: { status: number } }).response?.status).toBe(409)
+  })
 })

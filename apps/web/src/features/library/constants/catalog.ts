@@ -11,4 +11,6 @@ export const CATALOG_FILTERS: { value: TCatalogFilter; label: string; status?: T
 export const CATALOG_PAGE_SIZE = 12
 export const SEARCH_DEBOUNCE_MS = 350
 export const STATUS_POLL_INTERVAL_MS = 2000
+/** Catalog refresh cadence while any listed book is still being indexed. */
+export const CATALOG_POLL_INTERVAL_MS = 5000
 export const MAX_UPLOAD_MB = 100

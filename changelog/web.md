@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Fresh catalog after indexing; real upload errors; no upload timeout (no sprint) · ✅ Done
+
+**Event:** Task completed
+**Files:** `apps/web/src/services/api-error.ts`, `apps/web/src/services/api-client.ts`, `apps/web/src/services/api-factory.service.ts`, `apps/web/src/features/library/books/hooks/useBook.ts`, `apps/web/src/features/library/catalog/hooks/useBooks.ts`, `apps/web/src/features/library/constants/catalog.ts`, tests (`api-error.test.ts`, `api-factory.service.test.ts`, `useBook.test.tsx`, `useBooks.test.tsx`, `useBatchUpload.test.tsx`)
+> When a polled book leaves queued/processing, all book lists (catalog and the chat picker) are invalidated, and the catalog re-fetches every 5 s while a book on the page is still indexing. API failures now reject with an `ApiError` (a real `Error` carrying the backend message, `status`, `responseCode`, `response`), so batch upload rows show the server's reason (e.g. the duplicate 409) instead of "Upload failed". Multipart uploads have no client timeout; other requests keep 30 s.
+
 ### 2026-10-12 · Chat survives navigation, Stop, and bad stream frames (no sprint) · ✅ Done
 
 **Event:** Task completed

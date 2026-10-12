@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { ApiError } from '@/services/api-error'
 import { bookService } from '@/services/book.service'
 import { titleFromFileName, useBatchUpload } from './useBatchUpload'
 
@@ -128,5 +129,16 @@ describe('useBatchUpload', () => {
     await act(() => result.current.start())
     expect(upload).not.toHaveBeenCalled()
     expect(result.current.rows[0].status).toBe('pending')
+  })
+
+  it('shows the real error message of a rejected upload verbatim', async () => {
+    upload.mockRejectedValueOnce(new ApiError('A book with this file already exists', { response: { status: 409, data: {} } as never }))
+    const { result } = setup()
+    act(() => result.current.addFiles([pdf('a.pdf')]))
+    await act(async () => {
+      await result.current.start()
+    })
+    expect(result.current.rows[0].status).toBe('error')
+    expect(result.current.rows[0].error).toBe('A book with this file already exists')
   })
 })

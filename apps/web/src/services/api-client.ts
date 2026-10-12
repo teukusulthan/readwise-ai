@@ -2,6 +2,7 @@ import env from '@/config/env';
 import { useAuthStore } from '@/stores/useAuthStore';
 import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { API_ENDPOINTS } from './api-endpoints';
+import { toApiError } from './api-error';
 
 /**
  * API Client instance with Axios
@@ -102,24 +103,8 @@ apiClient.interceptors.response.use(
       }
     }
 
-    // Standardize error structure
-    // Backend failures arrive as a top-level `BaseResponseFailed` envelope (primary) or a plain `{ detail: string }`.
-    // The legacy `{ detail: BaseResponseFailed }` shape is still read for back-compat.
-    const body = response?.data as any;
-    const detail = body?.detail;
-    const errorMessage =
-      detail?.metaData?.message ||
-      (typeof detail === 'string' ? detail : undefined) ||
-      body?.metaData?.message ||
-      body?.message ||
-      error.message ||
-      'Something went wrong';
-
-    return Promise.reject({
-      ...error,
-      message: errorMessage,
-      status: response?.status,
-    });
+    // Standardize: always reject with an Error carrying the backend's message.
+    return Promise.reject(toApiError(error));
   }
 );
 
