@@ -158,10 +158,9 @@ What are you adding?
 │   ├── .env.staging          ← staging build (gitignored)
 │   └── .env.production       ← production build (gitignored)
 src/
-├── App.tsx
 ├── main.tsx
 ├── components/
-│   ├── layouts/            → AppHeader, AppSidebar, AppFooter, AppLayout
+│   ├── layouts/            → AppHeader, AppSidebar, AppLayout
 │   ├── ui/                 → shadcn/ui primitives; preserve behavior, align variants to DESIGN.md
 │   └── wrappers/           → PerfectScrollArea (exists), EChart, Mapbox wrappers
 ├── config/
