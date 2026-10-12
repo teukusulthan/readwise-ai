@@ -1,0 +1,112 @@
+diff --git a/node_modules/perfect-scrollbar/dist/perfect-scrollbar.common.js b/node_modules/perfect-scrollbar/dist/perfect-scrollbar.common.js
+index cd42961..aa8955f 100644
+--- a/node_modules/perfect-scrollbar/dist/perfect-scrollbar.common.js
++++ b/node_modules/perfect-scrollbar/dist/perfect-scrollbar.common.js
+@@ -304,13 +304,21 @@ var env = {
+ 
+ /* eslint-disable no-lonely-if */
+ 
++// library-rag patch: under an ancestor CSS `zoom` (or transform), getBoundingClientRect() and mouse
++// coordinates are in screen pixels while scrollWidth/scrollTop are in the element's own pixels.
++// Measure the container in its own pixels, and convert pointer distances with screenToLocal().
++function screenToLocal (element) {
++  var width = element.offsetWidth;
++  var visual = element.getBoundingClientRect().width;
++  return width && visual ? width / visual : 1;
++}
++
+ function updateGeometry (i) {
+   var element = i.element;
+   var roundedScrollTop = Math.floor(element.scrollTop);
+-  var rect = element.getBoundingClientRect();
+ 
+-  i.containerWidth = Math.floor(rect.width);
+-  i.containerHeight = Math.floor(rect.height);
++  i.containerWidth = element.clientWidth;
++  i.containerHeight = element.clientHeight;
+ 
+   i.contentWidth = element.scrollWidth;
+   i.contentHeight = element.scrollHeight;
+@@ -459,7 +467,7 @@ function clickRail (i) {
+ 
+   i.event.bind(i.scrollbarY, 'mousedown', function (e) { return e.stopPropagation(); });
+   i.event.bind(i.scrollbarYRail, 'mousedown', function (e) {
+-    var positionTop = e.pageY - window.pageYOffset - i.scrollbarYRail.getBoundingClientRect().top;
++    var positionTop = (e.pageY - window.pageYOffset - i.scrollbarYRail.getBoundingClientRect().top) * screenToLocal(i.element);
+     var direction = positionTop > i.scrollbarYTop ? 1 : -1;
+ 
+     i.element.scrollTop += direction * i.containerHeight;
+@@ -471,7 +479,7 @@ function clickRail (i) {
+   i.event.bind(i.scrollbarX, 'mousedown', function (e) { return e.stopPropagation(); });
+   i.event.bind(i.scrollbarXRail, 'mousedown', function (e) {
+     var positionLeft =
+-      e.pageX - window.pageXOffset - i.scrollbarXRail.getBoundingClientRect().left;
++      (e.pageX - window.pageXOffset - i.scrollbarXRail.getBoundingClientRect().left) * screenToLocal(i.element);
+     var direction = positionLeft > i.scrollbarXLeft ? 1 : -1;
+ 
+     i.element.scrollLeft += direction * i.containerWidth;
+@@ -564,7 +572,7 @@ function bindMouseScrollHandler(
+       }
+       startingMousePagePosition = e[pageAxis];
+       scrollBy =
+-        (i[contentDimension] - i[containerDimension]) / (i[railDimension] - i[scrollbarDimension]);
++        (i[contentDimension] - i[containerDimension]) / (i[railDimension] - i[scrollbarDimension]) * screenToLocal(element);
+ 
+       if (!e.touches) {
+         document.addEventListener('mousemove', moveHandler);
+diff --git a/node_modules/perfect-scrollbar/dist/perfect-scrollbar.esm.js b/node_modules/perfect-scrollbar/dist/perfect-scrollbar.esm.js
+index d54e121..06d0317 100644
+--- a/node_modules/perfect-scrollbar/dist/perfect-scrollbar.esm.js
++++ b/node_modules/perfect-scrollbar/dist/perfect-scrollbar.esm.js
+@@ -302,13 +302,21 @@ var env = {
+ 
+ /* eslint-disable no-lonely-if */
+ 
++// library-rag patch: under an ancestor CSS `zoom` (or transform), getBoundingClientRect() and mouse
++// coordinates are in screen pixels while scrollWidth/scrollTop are in the element's own pixels.
++// Measure the container in its own pixels, and convert pointer distances with screenToLocal().
++function screenToLocal (element) {
++  var width = element.offsetWidth;
++  var visual = element.getBoundingClientRect().width;
++  return width && visual ? width / visual : 1;
++}
++
+ function updateGeometry (i) {
+   var element = i.element;
+   var roundedScrollTop = Math.floor(element.scrollTop);
+-  var rect = element.getBoundingClientRect();
+ 
+-  i.containerWidth = Math.floor(rect.width);
+-  i.containerHeight = Math.floor(rect.height);
++  i.containerWidth = element.clientWidth;
++  i.containerHeight = element.clientHeight;
+ 
+   i.contentWidth = element.scrollWidth;
+   i.contentHeight = element.scrollHeight;
+@@ -457,7 +465,7 @@ function clickRail (i) {
+ 
+   i.event.bind(i.scrollbarY, 'mousedown', function (e) { return e.stopPropagation(); });
+   i.event.bind(i.scrollbarYRail, 'mousedown', function (e) {
+-    var positionTop = e.pageY - window.pageYOffset - i.scrollbarYRail.getBoundingClientRect().top;
++    var positionTop = (e.pageY - window.pageYOffset - i.scrollbarYRail.getBoundingClientRect().top) * screenToLocal(i.element);
+     var direction = positionTop > i.scrollbarYTop ? 1 : -1;
+ 
+     i.element.scrollTop += direction * i.containerHeight;
+@@ -469,7 +477,7 @@ function clickRail (i) {
+   i.event.bind(i.scrollbarX, 'mousedown', function (e) { return e.stopPropagation(); });
+   i.event.bind(i.scrollbarXRail, 'mousedown', function (e) {
+     var positionLeft =
+-      e.pageX - window.pageXOffset - i.scrollbarXRail.getBoundingClientRect().left;
++      (e.pageX - window.pageXOffset - i.scrollbarXRail.getBoundingClientRect().left) * screenToLocal(i.element);
+     var direction = positionLeft > i.scrollbarXLeft ? 1 : -1;
+ 
+     i.element.scrollLeft += direction * i.containerWidth;
+@@ -562,7 +570,7 @@ function bindMouseScrollHandler(
+       }
+       startingMousePagePosition = e[pageAxis];
+       scrollBy =
+-        (i[contentDimension] - i[containerDimension]) / (i[railDimension] - i[scrollbarDimension]);
++        (i[contentDimension] - i[containerDimension]) / (i[railDimension] - i[scrollbarDimension]) * screenToLocal(element);
+ 
+       if (!e.touches) {
+         document.addEventListener('mousemove', moveHandler);

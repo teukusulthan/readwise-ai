@@ -1,0 +1,70 @@
+{
+  "metadata": {
+    "title": "Data Statistik Sentimen Layanan Publik",
+    "tahun": 2024,
+    "total_responden": 24500,
+    "data_sources":["str"]
+  },
+  "data": [
+    {
+      "id": 1,
+      "text": "Produk ini berfungsi dengan baik, namun tidak ada yang istimewa.",
+      "sentiment": "neutral",
+      "score": 0.55
+    },
+    {
+      "id": 2,
+      "text": "Saya sangat menyukai fitur terbaru dari aplikasi ini, sangat memudahkan pekerjaan!",
+      "sentiment": "positive",
+      "score": 0.92
+    },
+    {
+      "id": 3,
+      "text": "Aplikasi sering crash dan pelayanannya sangat buruk.",
+      "sentiment": "negative",
+      "score": 0.15
+    },
+    {
+      "id": 4,
+      "text": "Paket sudah saya terima sesuai dengan estimasi waktu.",
+      "sentiment": "neutral",
+      "score": 0.5
+    },
+    {
+      "id": 5,
+      "text": "Desain UI-nya luar biasa dan pengalamannya sangat halus (smooth).",
+      "sentiment": "positive",
+      "score": 0.88
+    },
+    {
+      "id": 6,
+      "text": "Seller sangat tidak responsif ketika ditanya resi pengiriman.",
+      "sentiment": "negative",
+      "score": 0.2
+    },
+    {
+      "id": 7,
+      "text": "Harganya cukup standar jika dibandingkan dengan produk kompetitor.",
+      "sentiment": "neutral",
+      "score": 0.52
+    },
+    {
+      "id": 8,
+      "text": "Sangat direkomendasikan untuk pemula, panduannya jelas dan mudah dipahami.",
+      "sentiment": "positive",
+      "score": 0.9
+    },
+    {
+      "id": 9,
+      "text": "Material barang terasa sangat murahan dan cepat rusak.",
+      "sentiment": "negative",
+      "score": 0.18
+    },
+    {
+      "id": 10,
+      "text": "Secara keseluruhan biasa saja, ada harga ada rupa.",
+      "sentiment": "neutral",
+      "score": 0.48
+    }
+  ]
+}

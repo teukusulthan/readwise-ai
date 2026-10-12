@@ -1,0 +1,23 @@
+[
+  {
+    "context": "/api/v1/apps",
+    "target": "http://0.0.0.0:8020/",
+    "docs": "http://0.0.0.0:8020/docs",
+    "logLevel": "debug",
+    "secure": false,
+    "changeOrigin": true,
+    "pathRewrite": {
+      "^/api/v1/apps": ""
+    }
+  },
+  {
+    "context": "/cdn-assets",
+    "target": "",
+    "logLevel": "debug",
+    "secure": false,
+    "changeOrigin": true,
+    "pathRewrite": {
+      "^/cdn-assets": ""
+    }
+  }
+]

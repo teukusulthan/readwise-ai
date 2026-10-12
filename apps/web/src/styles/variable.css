@@ -1,0 +1,349 @@
+/* ============================================================================
+   READWISE AI — "Mist & Ink" light theme (light mode only)
+   Cool mist page, white surfaces, cloud borders, ink text, ink-navy accent,
+   sage = indexed/success, amber = in progress, muted rose = failed.
+   Contrast checked against WCAG AA (body text ≥ 4.5:1):
+     ink/mist 14.7 · slate/white 6.8 · slate/sunken 5.9 · placeholder/sunken 4.6
+     accent/white 8.1 · white/accent 8.1 · accent-bold/accent-light 9.8
+   ========================================================================== */
+:root {
+  /* Neutral — cool mist → ink (blue-tinted greys that pair with the navy accent) */
+  --base-neutral-50: #FFFFFF;   /* white — elevated surfaces */
+  --base-neutral-100: #F3F5F9;   /* mist — page background */
+  --base-neutral-200: #EBEEF4;   /* sunken surface */
+  --base-neutral-300: #DCE1EA;   /* cloud — borders */
+  --base-neutral-400: #C3CAD7;
+  --base-neutral-500: #626B80;   /* placeholder */
+  --base-neutral-600: #525B6E;   /* slate — secondary text */
+  --base-neutral-700: #394152;
+  --base-neutral-800: #283040;
+  --base-neutral-900: #1B2130;   /* ink — primary text */
+
+  /* Primary — ink navy */
+  --base-primary-50: #EEF2F8;
+  --base-primary-100: #DCE4F0;
+  --base-primary-200: #B9C9E1;
+  --base-primary-300: #8EA6CB;
+  --base-primary-400: #5E7DAF;
+  --base-primary-500: #2F4F86;
+  --base-primary-600: #2A4677;
+  --base-primary-700: #233C66;
+  --base-primary-800: #1C304F;
+  --base-primary-900: #14233D;
+
+  /* Secondary — sage */
+  --base-secondary-50: #EEF2EA;
+  --base-secondary-100: #E5ECDF;
+  --base-secondary-200: #C9D7C2;
+  --base-secondary-300: #A9BEA2;
+  --base-secondary-400: #8AA585;
+  --base-secondary-500: #6E8B6B;
+  --base-secondary-600: #5B7558;
+  --base-secondary-700: #3F573D;
+  --base-secondary-800: #3A4B38;
+  --base-secondary-900: #2C392A;
+
+  /* Tertiary — honey (charts) */
+  --base-tertiary-50: #FBF1DC;
+  --base-tertiary-100: #F6E2B8;
+  --base-tertiary-200: #EFCD86;
+  --base-tertiary-300: #E5B45A;
+  --base-tertiary-400: #D79A35;
+  --base-tertiary-500: #B97F22;
+  --base-tertiary-600: #976619;
+  --base-tertiary-700: #7A5114;
+  --base-tertiary-800: #5C3D0F;
+  --base-tertiary-900: #422C0B;
+
+  /* Quaternary — rose (charts) */
+  --base-quaternary-50: #F8E8E4;
+  --base-quaternary-100: #F0CFC8;
+  --base-quaternary-200: #E3A99E;
+  --base-quaternary-300: #D38677;
+  --base-quaternary-400: #C2665A;
+  --base-quaternary-500: #A84E44;
+  --base-quaternary-600: #8E3F37;
+  --base-quaternary-700: #74332D;
+  --base-quaternary-800: #5A2723;
+  --base-quaternary-900: #421D1A;
+
+  /* Quinary — slate teal (charts) */
+  --base-quinary-50: #E8EFF0;
+  --base-quinary-100: #CFDEE0;
+  --base-quinary-200: #A9C4C8;
+  --base-quinary-300: #82A8AE;
+  --base-quinary-400: #5F8D94;
+  --base-quinary-500: #4A747B;
+  --base-quinary-600: #3C5F65;
+  --base-quinary-700: #304C51;
+  --base-quinary-800: #24393D;
+  --base-quinary-900: #19292C;
+
+  /* Success — sage */
+  --base-success-50: #E5ECDF;
+  --base-success-100: #D3DFCB;
+  --base-success-200: #B6CAAE;
+  --base-success-300: #97B18F;
+  --base-success-400: #7A9876;
+  --base-success-500: #5A7A57;
+  --base-success-600: #4A6648;
+  --base-success-700: #3F573D;
+  --base-success-800: #304230;
+  --base-success-900: #223022;
+
+  /* Warning — amber */
+  --base-warning-50: #FBF1DC;
+  --base-warning-100: #F6E2B8;
+  --base-warning-200: #EFCD86;
+  --base-warning-300: #E5B45A;
+  --base-warning-400: #D79A35;
+  --base-warning-500: #A9741F;
+  --base-warning-600: #976619;
+  --base-warning-700: #7A5114;
+  --base-warning-800: #5C3D0F;
+  --base-warning-900: #422C0B;
+
+  /* Error — muted rose */
+  --base-error-50: #F8E8E4;
+  --base-error-100: #F0CFC8;
+  --base-error-200: #E3A99E;
+  --base-error-300: #D38677;
+  --base-error-400: #C2665A;
+  --base-error-500: #A84E44;
+  --base-error-600: #8E3F37;
+  --base-error-700: #74332D;
+  --base-error-800: #5A2723;
+  --base-error-900: #421D1A;
+
+  /* Info — slate teal */
+  --base-info-50: #E8EFF0;
+  --base-info-100: #CFDEE0;
+  --base-info-200: #A9C4C8;
+  --base-info-300: #82A8AE;
+  --base-info-400: #5F8D94;
+  --base-info-500: #4A747B;
+  --base-info-600: #3C5F65;
+  --base-info-700: #304C51;
+  --base-info-800: #24393D;
+  --base-info-900: #19292C;
+
+  /* ── Surfaces & text ──────────────────────────────────────────────── */
+  --bg-page: var(--base-neutral-100);
+  --bg-primary: var(--base-neutral-50);
+  --bg-secondary: var(--base-neutral-200);
+  --border-primary: var(--base-neutral-300);
+  --border-secondary: var(--base-neutral-400);
+  --text-color-primary: var(--base-neutral-900);
+  --text-color-secondary: var(--base-neutral-600);
+  --text-color-placeholder: var(--base-neutral-500);
+  --text-color-disabled: var(--base-neutral-400);
+  --text-color-on-accent: var(--base-neutral-50);
+
+  --primary-light: var(--base-primary-50);
+  --primary-soft: var(--base-primary-200);
+  --primary-base: var(--base-primary-500);
+  --primary-bold: var(--base-primary-700);
+  --primary-deep: var(--base-primary-900);
+  --secondary-light: var(--base-secondary-100);
+  --secondary-soft: var(--base-secondary-200);
+  --secondary-base: var(--base-secondary-500);
+  --secondary-bold: var(--base-secondary-700);
+  --secondary-deep: var(--base-secondary-900);
+  --tertiary-light: var(--base-tertiary-50);
+  --tertiary-soft: var(--base-tertiary-200);
+  --tertiary-base: var(--base-tertiary-500);
+  --tertiary-bold: var(--base-tertiary-700);
+  --tertiary-deep: var(--base-tertiary-900);
+  --quaternary-light: var(--base-quaternary-50);
+  --quaternary-soft: var(--base-quaternary-200);
+  --quaternary-base: var(--base-quaternary-500);
+  --quaternary-bold: var(--base-quaternary-700);
+  --quaternary-deep: var(--base-quaternary-900);
+  --quinary-light: var(--base-quinary-50);
+  --quinary-soft: var(--base-quinary-200);
+  --quinary-base: var(--base-quinary-500);
+  --quinary-bold: var(--base-quinary-700);
+  --quinary-deep: var(--base-quinary-900);
+  --neutral-light: var(--base-neutral-50);
+  --neutral-soft: var(--base-neutral-200);
+  --neutral-base: var(--base-neutral-500);
+  --neutral-bold: var(--base-neutral-700);
+  --neutral-deep: var(--base-neutral-900);
+
+  --success-light: var(--base-success-50);
+  --success-soft: var(--base-success-200);
+  --success-base: var(--base-success-500);
+  --success-bold: var(--base-success-700);
+  --success-deep: var(--base-success-900);
+  --error-light: var(--base-error-50);
+  --error-soft: var(--base-error-200);
+  --error-base: var(--base-error-500);
+  --error-bold: var(--base-error-700);
+  --error-deep: var(--base-error-900);
+  --info-light: var(--base-info-50);
+  --info-soft: var(--base-info-200);
+  --info-base: var(--base-info-500);
+  --info-bold: var(--base-info-700);
+  --info-deep: var(--base-info-900);
+  --warning-light: var(--base-warning-50);
+  --warning-soft: var(--base-warning-200);
+  --warning-base: var(--base-warning-500);
+  --warning-bold: var(--base-warning-700);
+  --warning-deep: var(--base-warning-900);
+
+  /* ── Spacing ──────────────────────────────────────────────────────── */
+  --space-1: 0.25rem;
+  --space-1-5: 0.375rem;
+  --space-2: 0.5rem;
+  --space-2-5: 0.625rem;
+  --space-3: 0.75rem;
+  --space-3-5: 0.875rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+
+  /* ── Shadows — soft, low-opacity ink ───────────────────────────────── */
+  --shadow-color: 27 33 48;
+
+  --shadow-2xs: 0 0.0625rem rgb(var(--shadow-color) / 0.04);
+  --shadow-xs: 0 0.0625rem 0.125rem 0 rgb(var(--shadow-color) / 0.05);
+  --shadow-sm: 0 0.0625rem 0.1875rem 0 rgb(var(--shadow-color) / 0.06), 0 0.0625rem 0.125rem -0.0625rem rgb(var(--shadow-color) / 0.05);
+  --shadow-md: 0 0.375rem 1rem -0.25rem rgb(var(--shadow-color) / 0.10), 0 0.125rem 0.375rem -0.125rem rgb(var(--shadow-color) / 0.06);
+  --shadow-lg: 0 0.875rem 1.75rem -0.5rem rgb(var(--shadow-color) / 0.14), 0 0.25rem 0.5rem -0.25rem rgb(var(--shadow-color) / 0.06);
+  --shadow-xl: 0 1.25rem 2.5rem -0.75rem rgb(var(--shadow-color) / 0.18), 0 0.5rem 0.75rem -0.375rem rgb(var(--shadow-color) / 0.06);
+  --shadow-2xl: 0 1.75rem 3.5rem -1rem rgb(var(--shadow-color) / 0.24);
+  --inset-shadow-2xs: inset 0 0.0625rem rgb(var(--shadow-color) / 0.04);
+  --inset-shadow-xs: inset 0 0.0625rem 0.125rem 0 rgb(var(--shadow-color) / 0.05);
+  --inset-shadow-sm: inset 0 0.125rem 0.25rem 0 rgb(var(--shadow-color) / 0.06);
+
+  /* ── Radius — soft, rounded ───────────────────────────────────────── */
+  --radius: 0.625rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.5rem;
+  --radius-full: 22.5rem;
+
+  /* ── Type scale (1rem = 16px) ─────────────────────────────────────── */
+  --text-display: 3.5rem;
+  --text-h1: 2.5rem;
+  --text-h2: 2rem;
+  --text-h3: 1.625rem;
+  --text-h4: 1.375rem;
+  --text-h5: 1.1875rem;
+  --text-h6: 1.0625rem;
+  --text-body-lg: 1.0625rem;
+  --text-body-md: 0.9375rem;
+  --text-body-sm: 0.8125rem;
+  --text-label-lg: 1rem;
+  --text-label-md: 0.875rem;
+  --text-label-sm: 0.75rem;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --text-4xl: 2.25rem;
+  --text-5xl: 3rem;
+  --text-6xl: 3.75rem;
+  --text-7xl: 4.5rem;
+  --text-8xl: 6rem;
+  --text-9xl: 8rem;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", sans-serif;
+  /* Display serif for page titles, book titles and the reading view */
+  --font-serif: "Fraunces", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  --font-weight-thin: 100;
+  --font-weight-extralight: 200;
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+  --font-weight-black: 900;
+
+  --line-height-none: 1;
+  --line-height-tight: 1.25;
+  --line-height-snug: 1.375;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.65;
+  --line-height-loose: 2;
+  --leading-none: 1;
+  --leading-tight: 1.25;
+  --leading-snug: 1.375;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+  --leading-loose: 2;
+
+  --letter-spacing-tighter: -0.05em;
+  --letter-spacing-tight: -0.025em;
+  --letter-spacing-normal: 0em;
+  --letter-spacing-wide: 0.025em;
+  --letter-spacing-wider: 0.05em;
+  --letter-spacing-widest: 0.1em;
+  --tracking-tighter: -0.05em;
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.025em;
+  --tracking-wider: 0.05em;
+  --tracking-widest: 0.1em;
+
+  /* ── shadcn semantic ──────────────────────────────────────────────── */
+  --background: var(--bg-page);
+  --foreground: var(--text-color-primary);
+  --card: var(--bg-primary);
+  --card-foreground: var(--text-color-primary);
+  --popover: var(--bg-primary);
+  --popover-foreground: var(--text-color-primary);
+  --primary: var(--primary-base);
+  --primary-foreground: var(--text-color-on-accent);
+  --secondary: var(--bg-secondary);
+  --secondary-foreground: var(--text-color-primary);
+  --tertiary: var(--tertiary-base);
+  --tertiary-foreground: var(--text-color-on-accent);
+  --quaternary: var(--quaternary-base);
+  --quaternary-foreground: var(--text-color-on-accent);
+  --quinary: var(--quinary-base);
+  --quinary-foreground: var(--text-color-on-accent);
+  --muted: var(--bg-secondary);
+  --muted-foreground: var(--text-color-secondary);
+  --accent: var(--primary-light);
+  --accent-foreground: var(--primary-bold);
+  --destructive: var(--error-base);
+  --destructive-foreground: var(--text-color-on-accent);
+  --border: var(--border-primary);
+  --input: var(--border-primary);
+  --ring: var(--base-primary-300);
+
+  --sidebar: var(--bg-primary);
+  --sidebar-foreground: var(--text-color-primary);
+  --sidebar-primary: var(--primary-base);
+  --sidebar-primary-foreground: var(--text-color-on-accent);
+  --sidebar-accent: var(--primary-light);
+  --sidebar-accent-foreground: var(--primary-bold);
+  --sidebar-border: var(--border-primary);
+  --sidebar-ring: var(--base-primary-300);
+
+  --chart-1: var(--primary-base);
+  --chart-2: var(--secondary-base);
+  --chart-3: var(--tertiary-base);
+  --chart-4: var(--quaternary-base);
+  --chart-5: var(--quinary-base);
+
+  /* ── Shell scale (CSS zoom; see .app-content / .app-sidebar) ─────── */
+  --content-scale: 0.88;  /* main column: pages, cards, chat */
+  --sidebar-scale: 1.1;  /* navigation sidebar */
+
+  color-scheme: light;
+}

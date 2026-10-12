@@ -1,0 +1,299 @@
+/* TAILWIND v4 THEME CONFIG — Maps design tokens → Tailwind utility classes. Base: 1rem = 16px */
+
+@theme inline {
+
+  /* ─── FONT FAMILY — font-sans / font-serif / font-mono ──────────────────── */
+  --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
+  --font-mono: var(--font-mono);
+
+  /* ─── FONT SIZE — text-display / text-h1…h6 / text-body-lg…sm / text-label-lg…sm */
+  --text-display: var(--text-display);
+  --text-h1: var(--text-h1);
+  --text-h2: var(--text-h2);
+  --text-h3: var(--text-h3);
+  --text-h4: var(--text-h4);
+  --text-h5: var(--text-h5);
+  --text-h6: var(--text-h6);
+  --text-body-lg: var(--text-body-lg);
+  --text-body-md: var(--text-body-md);
+  --text-body-sm: var(--text-body-sm);
+  --text-label-lg: var(--text-label-lg);
+  --text-label-md: var(--text-label-md);
+  --text-label-sm: var(--text-label-sm);
+
+  /* ─── FONT WEIGHT — font-regular / font-medium / font-semibold / font-bold ─ */
+  --font-weight-regular: var(--font-weight-regular);
+  --font-weight-medium: var(--font-weight-medium);
+  --font-weight-semibold: var(--font-weight-semibold);
+  --font-weight-bold: var(--font-weight-bold);
+
+  /* ─── LINE HEIGHT — leading-tight / leading-normal / leading-loose ────────── */
+  --leading-none: var(--leading-none);
+  --leading-tight: var(--leading-tight);
+  --leading-snug: var(--leading-snug);
+  --leading-normal: var(--leading-normal);
+  --leading-relaxed: var(--leading-relaxed);
+  --leading-loose: var(--leading-loose);
+
+  /* ─── LETTER SPACING — tracking-tight / tracking-normal / tracking-wide ───── */
+  --tracking-tighter: var(--tracking-tighter);
+  --tracking-tight: var(--tracking-tight);
+  --tracking-normal: var(--tracking-normal);
+  --tracking-wide: var(--tracking-wide);
+  --tracking-wider: var(--tracking-wider);
+  --tracking-widest: var(--tracking-widest);
+
+  /* ─── COLOR — bg-* / text-* / border-* / ring-* ────────────────────────── */
+
+  /* shadcn semantic */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary-base);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary-base);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-tertiary: var(--tertiary-base);
+  --color-tertiary-foreground: var(--tertiary-foreground);
+  --color-quaternary: var(--quaternary-base);
+  --color-quaternary-foreground: var(--quaternary-foreground);
+  --color-quinary: var(--quinary-base);
+  --color-quinary-foreground: var(--quinary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* surface */
+  --color-background-page: var(--bg-page);
+  --color-background-primary: var(--bg-primary);
+  --color-background-secondary: var(--bg-secondary);
+
+  /* border */
+  --color-border-primary: var(--border-primary);
+  --color-border-secondary: var(--border-secondary);
+
+  /* typography */
+  --color-font-primary: var(--text-color-primary);
+  --color-font-secondary: var(--text-color-secondary);
+  --color-font-placeholder: var(--text-color-placeholder);
+  --color-font-disabled: var(--text-color-disabled);
+  --color-font-on-accent: var(--text-color-on-accent);
+
+  /* brand semantic — primary */
+  --color-primary-light: var(--primary-light);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-base: var(--primary-base);
+  --color-primary-bold: var(--primary-bold);
+  --color-primary-deep: var(--primary-deep);
+
+  /* brand semantic — secondary */
+  --color-secondary-light: var(--secondary-light);
+  --color-secondary-soft: var(--secondary-soft);
+  --color-secondary-base: var(--secondary-base);
+  --color-secondary-bold: var(--secondary-bold);
+  --color-secondary-deep: var(--secondary-deep);
+
+  /* brand semantic — tertiary */
+  --color-tertiary-light: var(--tertiary-light);
+  --color-tertiary-soft: var(--tertiary-soft);
+  --color-tertiary-base: var(--tertiary-base);
+  --color-tertiary-bold: var(--tertiary-bold);
+  --color-tertiary-deep: var(--tertiary-deep);
+
+  /* brand semantic — quaternary */
+  --color-quaternary-light: var(--quaternary-light);
+  --color-quaternary-soft: var(--quaternary-soft);
+  --color-quaternary-base: var(--quaternary-base);
+  --color-quaternary-bold: var(--quaternary-bold);
+  --color-quaternary-deep: var(--quaternary-deep);
+
+  /* brand semantic — quinary */
+  --color-quinary-light: var(--quinary-light);
+  --color-quinary-soft: var(--quinary-soft);
+  --color-quinary-base: var(--quinary-base);
+  --color-quinary-bold: var(--quinary-bold);
+  --color-quinary-deep: var(--quinary-deep);
+
+  /* neutral */
+  --color-neutral: var(--neutral-base);
+  --color-neutral-light: var(--neutral-light);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-neutral-base: var(--neutral-base);
+  --color-neutral-bold: var(--neutral-bold);
+  --color-neutral-deep: var(--neutral-deep);
+
+  /* state semantic */
+  --color-success: var(--success-base);
+  --color-success-light: var(--success-light);
+  --color-success-soft: var(--success-soft);
+  --color-success-base: var(--success-base);
+  --color-success-bold: var(--success-bold);
+  --color-success-deep: var(--success-deep);
+  --color-error: var(--error-base);
+  --color-error-light: var(--error-light);
+  --color-error-soft: var(--error-soft);
+  --color-error-base: var(--error-base);
+  --color-error-bold: var(--error-bold);
+  --color-error-deep: var(--error-deep);
+  --color-warning: var(--warning-base);
+  --color-warning-light: var(--warning-light);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-base: var(--warning-base);
+  --color-warning-bold: var(--warning-bold);
+  --color-warning-deep: var(--warning-deep);
+  --color-info: var(--info-base);
+  --color-info-light: var(--info-light);
+  --color-info-soft: var(--info-soft);
+  --color-info-base: var(--info-base);
+  --color-info-bold: var(--info-bold);
+  --color-info-deep: var(--info-deep);
+
+  /* chart */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* ─── SPACING — p-* / m-* / gap-* / w-* / h-* ───────────────────────────── */
+  --spacing-1: var(--space-1);
+  --spacing-1-5: var(--space-1-5);
+  --spacing-2: var(--space-2);
+  --spacing-2-5: var(--space-2-5);
+  --spacing-3: var(--space-3);
+  --spacing-3-5: var(--space-3-5);
+  --spacing-4: var(--space-4);
+  --spacing-5: var(--space-5);
+  --spacing-6: var(--space-6);
+  --spacing-8: var(--space-8);
+  --spacing-10: var(--space-10);
+
+  /* ─── BORDER RADIUS — rounded-* ─────────────────────────────────────────── */
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+  --radius-3xl: var(--radius-3xl);
+
+  /* ─── SHADOW — shadow-* ──────────────────────────────────────────────────── */
+  --shadow-2xs: var(--shadow-2xs);
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
+  --inset-shadow-2xs: var(--inset-shadow-2xs);
+  --inset-shadow-xs: var(--inset-shadow-xs);
+  --inset-shadow-sm: var(--inset-shadow-sm);
+
+  /* ─── ANIMATION — animate-* ─────────────────────────────────────────────── */
+  --animate-fade-in: fade-in 0.3s ease-out;
+  --animate-slide-up: slide-up 0.4s ease-out;
+  --animate-fade-up: fade-up 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-caret: caret-blink 1s steps(2, start) infinite;
+  --animate-page-in: page-in 0.38s var(--ease-fluid) both;
+  --animate-message-in: message-in 0.42s var(--ease-fluid) both;
+  --animate-message-in-right: message-in-right 0.36s var(--ease-fluid) both;
+  --animate-pop-in: pop-in 0.28s var(--ease-spring) both;
+  --animate-typing: typing 1.25s var(--ease-fluid) infinite;
+  --animate-soft-ping: soft-ping 1.8s var(--ease-fluid) infinite;
+
+  @keyframes typing {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+    30% { transform: translateY(-4px); opacity: 1; }
+  }
+
+  @keyframes soft-ping {
+    0% { transform: scale(1); opacity: 0.55; }
+    80%, 100% { transform: scale(1.45); opacity: 0; }
+  }
+
+  /* ─── EASING — ease-* ─────────────────────────────────────────────────────── */
+  /* fluid: fast start, long soft landing (most UI motion). spring: tiny overshoot (small pops). */
+  --ease-fluid: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-press: cubic-bezier(0.4, 0, 0.2, 1);
+
+  @keyframes page-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  @keyframes message-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.99); }
+    to { opacity: 1; transform: none; }
+  }
+
+  @keyframes message-in-right {
+    from { opacity: 0; transform: translate(14px, 6px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+  }
+
+  @keyframes pop-in {
+    from { opacity: 0; transform: scale(0.9); }
+    to { opacity: 1; transform: none; }
+  }
+
+  @keyframes fade-up {
+    from { transform: translateY(6px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  @keyframes caret-blink {
+    to { visibility: hidden; }
+  }
+
+  @keyframes fade-in { 
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes slide-up {
+    from { transform: translateY(10px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  
+  /* ─── SHADOW — shadow-* ──────────────────────────────────────────────────── */
+  /* not defined in design tokens — using Tailwind defaults */
+
+  /* ─── BLUR — blur-* ──────────────────────────────────────────────────────── */
+  /* not defined in design tokens — using Tailwind defaults */
+
+  /* ─── OPACITY — opacity-* ────────────────────────────────────────────────── */
+  /* not defined in design tokens — using Tailwind defaults */
+
+  /* ─── Z-INDEX — z-* ──────────────────────────────────────────────────────── */
+  /* not defined in design tokens — using Tailwind defaults */
+
+  /* ─── BREAKPOINT — sm: / md: / lg: / xl: / 2xl: ─────────────────────────── */
+  /* not defined in design tokens — using Tailwind defaults */
+
+  /* ─── TRANSITION DURATION — duration-* ──────────────────────────────────── */
+  /* not defined in design tokens — using Tailwind defaults */
+
+  /* ─── TRANSITION EASING — ease-* ────────────────────────────────────────── */
+  /* not defined in design tokens — using Tailwind defaults */
+  /* ─── OTHER — sidebar, chart ─────────────────────────────────────────────── */
+
+  /* sidebar */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+}

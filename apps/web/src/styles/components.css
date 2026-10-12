@@ -1,0 +1,132 @@
+/* Custom utility classes & UI overrides */
+
+/*
+ * Shell scale. `zoom` shrinks/grows a region uniformly (text, spacing, icons, images)
+ * while every component keeps its normal rem sizes. Portaled UI (dialogs, tooltips,
+ * toasts) renders outside these regions and keeps full size.
+ */
+.app-content {
+  zoom: var(--content-scale);
+}
+
+.app-sidebar {
+  zoom: var(--sidebar-scale);
+}
+
+/* ── Dialog animations ── */
+@keyframes dialog-overlay-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dialog-overlay-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+/*
+ * Animate only `scale` + `opacity`. Centering comes from Tailwind v4's
+ * `translate-x/y-[-50%]`, which sets the standalone `translate` property;
+ * the browser applies `translate` AND `transform` together, so a
+ * `transform: translate(-50%, -50%)` here would shift the dialog a second
+ * time (half its size up and left — off-centre, top clipped).
+ */
+@keyframes dialog-content-in {
+  from {
+    opacity: 0;
+    scale: 0.95;
+  }
+
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes dialog-content-out {
+  from {
+    opacity: 1;
+    scale: 1;
+  }
+
+  to {
+    opacity: 0;
+    scale: 0.95;
+  }
+}
+
+.dialog-overlay {
+  will-change: opacity;
+}
+
+.dialog-overlay[data-state="open"] {
+  animation: dialog-overlay-in 240ms var(--ease-fluid) both;
+}
+
+.dialog-overlay[data-state="closed"] {
+  animation: dialog-overlay-out 180ms var(--ease-press) forwards;
+}
+
+.dialog-content {
+  will-change: scale, opacity;
+}
+
+.dialog-content[data-state="open"] {
+  animation: dialog-content-in 320ms var(--ease-fluid) both;
+}
+
+.dialog-content[data-state="closed"] {
+  animation: dialog-content-out 180ms var(--ease-press) forwards;
+}
+
+/* ── Loading skeleton: a soft light sweep instead of blinking ── */
+@keyframes skeleton-sweep {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+
+.skeleton-shimmer {
+  background-color: var(--color-muted);
+  background-image: linear-gradient(100deg, transparent 20%, color-mix(in oklab, var(--color-card) 70%, transparent) 50%, transparent 80%);
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.6s var(--ease-press) infinite;
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-muted-foreground) transparent;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: var(--color-muted-foreground);
+    border-radius: 3px;
+  }
+}
+
+/* Focus ring for accessibility */
+.focus-ring {
+  outline: none;
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}

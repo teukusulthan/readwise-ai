@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+vendor/
+.venv/
+__pycache__/
+
+# Build output
+dist/
+build/
+out/
+.next/
+.nuxt/
+
+# Environment & secrets
+.env
+.env.*
+*.pem
+*.key
+secrets/
+
+# Logs
+*.log
+logs/
+
+# Version control
+.git/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Lock files (opsional, kadang tetap berguna)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Cache
+.cache/
+.turbo/
+.parcel-cache/

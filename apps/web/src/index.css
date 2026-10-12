@@ -1,0 +1,110 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "react-perfect-scrollbar/dist/css/styles.css";
+
+/* Core design tokens and variables */
+@import "./styles/variable.css";
+
+/* Tailwind theme configuration */
+@import "./styles/tailwind.css";
+
+/* Components & Utilities */
+@import "./styles/components.css";
+
+/* ============================================
+  BASE LAYER
+  html font-size: 100% (= 16px by default) so 1rem = 16px and the UI
+  respects the user's browser zoom / accessibility preferences.
+  The app is light-mode only (cream theme).
+   ============================================ */
+@layer base {
+  * {
+    @apply border-border-primary outline-ring/50;
+  }
+
+  html {
+    font-size: 100%;
+    color-scheme: light;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.55;
+  }
+
+  /*
+   * Cursors that say what will happen. Tailwind v4 resets buttons to the default arrow,
+   * so interactive elements opt back in to the hand; disabled ones say "not allowed".
+   */
+  a[href],
+  button,
+  [role="button"],
+  [role="tab"],
+  [role="menuitem"],
+  [role="option"],
+  summary,
+  select,
+  label[for],
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="file"],
+  input[type="range"] {
+    cursor: pointer;
+  }
+
+  :disabled,
+  [aria-disabled="true"],
+  :disabled *,
+  [aria-disabled="true"] * {
+    cursor: not-allowed;
+  }
+
+  /* Explanations live in the title: hovering says "there is help here". */
+  [data-cursor="help"] {
+    cursor: help;
+  }
+
+  /* An answer is being written. */
+  [aria-busy="true"] {
+    cursor: progress;
+  }
+
+  ::selection {
+    background: var(--base-primary-100);
+    color: var(--text-color-primary);
+  }
+
+  /* Calm motion: honour the OS "reduce motion" setting everywhere. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ── Scrollbars (perfect-scrollbar) ─────────────────────────────────────────
+   Thin and hidden until needed; the thumb widens on hover and can be grabbed. */
+.ps__rail-y { width:4px!important; background:transparent!important; right:2px!important; opacity:0!important; cursor:pointer; transition:opacity 0.3s var(--ease-fluid),width 0.25s var(--ease-fluid),background-color 0.25s var(--ease-fluid)!important; }
+.ps:hover>.ps__rail-y,.ps--focus>.ps__rail-y,.ps--scrolling-y>.ps__rail-y { opacity:1!important; }
+.ps__rail-y:hover,.ps__rail-y.ps--clicking { background:var(--color-border-primary)!important; width:8px!important; opacity:1!important; border-radius:999px; }
+.ps__thumb-y { width:4px!important; right:0!important; background:var(--color-border-secondary)!important; border-radius:999px!important; cursor:grab; transition:width 0.25s var(--ease-fluid),background-color 0.25s var(--ease-fluid)!important; }
+.ps__thumb-y:hover,.ps__rail-y:hover>.ps__thumb-y,.ps__rail-y.ps--clicking>.ps__thumb-y { width:8px!important; background:var(--color-primary-base)!important; }
+/* While dragging a thumb: grabbing hand everywhere, and no accidental text selection. */
+.ps__rail-y.ps--clicking>.ps__thumb-y { cursor:grabbing; }
+html:has(.ps__rail-y.ps--clicking) { cursor:grabbing; user-select:none; }

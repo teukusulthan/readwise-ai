@@ -1,0 +1,83 @@
+[project]
+name = "library-rag-backend"
+version = "0.1.0"
+description = "FastAPI backend for the RAG Book Library"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # Web framework
+    "fastapi==0.136.1",
+    "starlette==1.0.0",
+    "uvicorn==0.22.0",
+    "pydantic==2.13.3",
+    "python-multipart==0.0.7",
+    "python-dotenv==1.0.1",
+    "itsdangerous==2.2.0",
+    # Auth / crypto
+    "Authlib==1.6.5",
+    "bcrypt==4.0.1",
+    "cryptography==46.0.7",
+    "pycryptodome==3.20.0",
+    "PyJWT==2.4.0",
+    "pyotp==2.9.0",
+    "qrcode==8.2",
+    # Data stores
+    "pymongo==4.3.3",
+    "redis==5.0.1",
+    "psycopg[binary,pool]>=3.2,<4",
+    "qdrant-client>=1.19,<1.20",  # keep in step with the qdrant server image
+    # Storage / queue
+    "boto3>=1.43.1",  # litellm needs >=1.43.1
+    "s3fs>=2025.1",
+    "kafka-python>=2.0.3,<3",
+    "python-magic==0.4.27",
+    "Pillow",
+    # Utilities
+    "beautifulsoup4==4.14.3",
+    "dateparser==1.1.8",
+    "httpx==0.28.1",
+    "jmespath==1.0.1",
+    "loguru==0.7.2",
+    "pydash==8.0.5",
+    "python-dateutil==2.9.0.post0",
+    "pytz==2026.1.post1",
+    "regex==2026.4.4",
+    "requests==2.33.1",
+    "tzlocal==5.3.1",
+    "docling==2.129.0",
+    "agno==3.0.10",
+    "litellm==1.102.0",
+    "torch>=2.14,<2.15",
+    "torchvision>=0.29,<0.30",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: needs the docker compose services (postgres, qdrant, mongo, redis)",
+    "external: calls the company embedding service on the internal network",
+    "docling: runs real Docling PDF parsing (slow; downloads models on first run)",
+]
+addopts = "-m 'not integration and not external and not docling'"
+
+# CPU-only PyTorch (pulled in by Docling). The default PyPI wheels bundle several GB
+# of CUDA libraries that are useless without an NVIDIA GPU.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }

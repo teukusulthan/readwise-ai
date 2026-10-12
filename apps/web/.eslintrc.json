@@ -1,0 +1,35 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2018,
+    "sourceType": "module"
+  },
+  "ignorePatterns": ["dist/", "src/assets/js/", "node_modules/", "**/*.min.js"],
+  "plugins": ["@typescript-eslint", "react-hooks"],
+  "extends": ["plugin:react/recommended", "plugin:@typescript-eslint/recommended", "plugin:react/jsx-runtime"],
+  "rules": {
+    "@typescript-eslint/no-explicit-any": "off",
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "off",
+    "react/prop-types": "off",
+    "@typescript-eslint/explicit-function-return-type": "off",
+    "@typescript-eslint/explicit-module-boundary-types": "off",
+    "@typescript-eslint/no-var-requires": 0,
+    "prefer-const": "off",
+    "@typescript-eslint/no-inferrable-types": [
+      2,
+      {
+        "ignoreParameters": true
+      }
+    ],
+    "jsx-a11y/anchor-is-valid": "off",
+    "jsx-a11y/href-no-hash": "off"
+  },
+  "settings": {
+    "react": {
+      "pragma": "React",
+      "version": "detect"
+    }
+  }
+}

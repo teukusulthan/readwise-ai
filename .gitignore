@@ -1,0 +1,104 @@
+# Claude Code — personal settings
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Template
+.ai/boilerplates/web-reactjs/node_modules
+.ai/boilerplates/web-reactjs/build
+.ai/boilerplates/web-reactjs/package-lock.json
+
+
+# Rust
+/backend/target/
+/backend/.env
+
+# Node
+/web/node_modules/
+/web/dist/
+/web/.env
+/web/.env.local
+
+# Flutter
+/mobile/.dart_tool/
+/mobile/.flutter-plugins
+/mobile/.flutter-plugins-dependencies
+/mobile/build/
+/mobile/.env
+
+# Dashboard Migrator
+/dashboard-migrator/*
+
+# dependencies
+/node_modules
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Uploaded book files (local storage)
+apps/backend/storage/
+
+# Python
+**/__pycache__/
+*.pyc
+*.pyo
+__pycache__/
+.venv/
+.venv/
+
+# AI session state
+.ai-session.json
+.ai-sessions.json
+.ai-config.json
+# apps/*
+
+# Secrets
+*.pem
+*.key
+*.p12
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Claude logs
+.claude/logs/*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Playwright MCP screenshots/snapshots
+.playwright-mcp/
+
+# --- Readwise AI (library-rag) ---
+# Real env files hold the LLM key, JWT/session secrets: never commit them.
+# The *.env.example templates stay tracked (see !.env.example above).
+apps/backend/.env
+apps/web/env/.env
+apps/web/env/.env.*
+!apps/web/env/.env.example
+
+# Dependencies and build output
+node_modules/
+apps/web/build/
+apps/web/dist/
+
+# Python tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Local data that must not leave the machine
+apps/backend/storage/
+
+# Company boilerplate + local agent config (kept on disk, not published)
+.claude/
+.mcp.json
