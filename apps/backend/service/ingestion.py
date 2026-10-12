@@ -11,7 +11,8 @@ cut off that way is marked failed at the next startup and can be retried with re
 Retry safety:
 - the status claim is an atomic UPDATE ... WHERE status = 'queued', so a job runs once;
 - chunk point ids are deterministic, so re-indexing overwrites instead of duplicating;
-- leftover points from a previous, longer run are deleted at the end.
+- leftover points from a previous, longer run are deleted at the end;
+- if the book row was deleted while the job ran, the job deletes the points it wrote.
 """
 
 import queue
@@ -104,10 +105,14 @@ class Ingestion:
         except Exception as error:
             message = str(error) if isinstance(error, UserFacingError) else "Indexing failed. See server logs."
             logger.exception("Indexing failed for book {id}", id=book_id)
+            if self._drop_points_if_book_deleted(book_id):
+                return
             self.repository.transition_status(book_id, "failed", from_statuses=("processing",),
                                               ingestion_error=message[:1000])
             return
 
+        if self._drop_points_if_book_deleted(book_id):
+            return
         self.repository.transition_status(
             book_id, "indexed", from_statuses=("processing",),
             ingestion_error=None, chunk_count=chunk_count, page_count=page_count,
@@ -115,6 +120,17 @@ class Ingestion:
         )
         logger.info("Indexed book {id}: {n} chunks in {s:.1f}s", id=book_id, n=chunk_count,
                     s=(datetime.now(timezone.utc) - started).total_seconds())
+
+    def _drop_points_if_book_deleted(self, book_id) -> bool:
+        """
+        After upserting: if the book row is gone (deleted while this job ran), delete the points
+        this job wrote so no orphan vectors stay in Qdrant. Returns True if the book was gone.
+        """
+        if self.repository.get(book_id) is not None:
+            return False
+        self.vector_store.delete_book(book_id)
+        logger.info("Book {id} was deleted during indexing; removed its vectors", id=book_id)
+        return True
 
     def _index(self, book: dict) -> tuple[Optional[int], int]:
         if not book["file_path"]:

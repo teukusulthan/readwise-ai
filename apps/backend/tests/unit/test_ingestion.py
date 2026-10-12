@@ -15,9 +15,13 @@ class FakeRepository:
     def __init__(self, book):
         self.book = book
         self.history = [book["ingestion_status"]]
+        self.deleted = False  # the row was deleted (DELETE /book/delete) while the job ran
+
+    def get(self, book_id):
+        return None if self.deleted else dict(self.book)
 
     def transition_status(self, book_id, to_status, from_statuses, **fields):
-        if self.book["ingestion_status"] not in from_statuses:
+        if self.deleted or self.book["ingestion_status"] not in from_statuses:
             return None
         self.book.update(fields, ingestion_status=to_status)
         self.history.append(to_status)
@@ -109,6 +113,42 @@ def test_too_many_pages_rejected(store, settings, monkeypatch):
     book = _book()
     _ingestion(book, store, _parser(_chunks(1), pages=3)).enqueue(book["id"])
     assert book["ingestion_status"] == "failed" and "limit is 2" in book["ingestion_error"]
+
+
+def _deleting_parser(repository, chunks, fail=False):
+    """Yields the chunks, then the book row disappears (deleted while indexing ran)."""
+    def parse(path):
+        def generate():
+            yield from chunks
+            repository.deleted = True
+            if fail:
+                raise RuntimeError("parser crashed after the book was deleted")
+        return 3, generate()
+    return parse
+
+
+def test_points_of_a_book_deleted_during_indexing_are_removed(store):
+    book = _book()
+    ingestion = _ingestion(book, store, None)
+    ingestion._parser = _deleting_parser(ingestion.repository, _chunks(5))
+    ingestion.enqueue(book["id"])
+    assert store.count(book["id"]) == 0
+    assert ingestion.repository.history == ["queued", "processing"]  # never marked indexed
+
+
+def test_partial_points_of_a_deleted_book_are_removed_when_indexing_fails(store, settings, monkeypatch):
+    monkeypatch.setattr(settings, "ENGINE_EMBEDDING_BATCH_SIZE", 2)
+    book = _book()
+    ingestion = _ingestion(book, store, None)
+    ingestion._parser = _deleting_parser(ingestion.repository, _chunks(5), fail=True)
+    ingestion.enqueue(book["id"])
+    assert store.count(book["id"]) == 0 and ingestion.repository.history == ["queued", "processing"]
+
+
+def test_points_are_kept_when_the_book_still_exists(store):
+    book = _book()
+    _ingestion(book, store, _parser(_chunks(3))).enqueue(book["id"])
+    assert store.count(book["id"]) == 3 and book["ingestion_status"] == "indexed"
 
 
 def test_worker_threads_are_daemons_so_shutdown_never_waits():
