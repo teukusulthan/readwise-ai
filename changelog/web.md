@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Semantic search page (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/web/src/pages/library/SearchPage.tsx`, `src/features/library/search/{components,hooks,utils}/*`, `src/features/library/components/BookSelector.tsx` (moved from `chat/components/`), `src/features/library/hooks/useIndexedBooks.ts` (moved from `chat/hooks/`), `src/routes/main.routes.tsx`, `src/config/menu/app.menu.ts`, `src/features/library/constants/query-keys.ts`, tests `SearchView.test.tsx`
+> New `/search` page (menu entry between Catalog and Ask): query box (Enter submits), optional book scope, ranked passages with book, headings, pages, score %, 4-line clamp with Show more/less, "Ask about this" (`/ask?bookId=`) and "Open page N". Query and scope live in the URL (`?q=`, `?books=a,b`; submit pushes history, scope changes replace). Loading, empty, no-results, error (backend message, e.g. rate limit, with retry) and skipped-books states. The chat's book picker is now shared (optional `title` prop; empty-state copy now ends "to get started").
+
 ### 2026-10-12 · Open the PDF at the cited page (no sprint) · ✅ Done
 
 **Event:** Files modified

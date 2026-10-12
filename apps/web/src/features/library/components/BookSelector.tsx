@@ -14,6 +14,8 @@ interface BookSelectorProps {
   error: Error | null
   selectedIds: string[]
   onChange: (ids: string[]) => void
+  /** Heading and group label; defaults to the chat's wording. */
+  title?: string
 }
 
 /** Show the search box once the list is too long to scan at a glance. */
@@ -29,7 +31,7 @@ const chipClass = (selected: boolean) =>
   )
 
 /** Pick which indexed books to ask. An empty selection means “all indexed books”. */
-export function BookSelector({ books, isLoading, error, selectedIds, onChange }: BookSelectorProps) {
+export function BookSelector({ books, isLoading, error, selectedIds, onChange, title = 'Books to ask' }: BookSelectorProps) {
   const [query, setQuery] = useState('')
   const toggle = (id: string) => onChange(selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id])
   const allSelected = selectedIds.length === 0
@@ -46,7 +48,7 @@ export function BookSelector({ books, isLoading, error, selectedIds, onChange }:
     <section className="flex flex-col gap-3" aria-labelledby="book-selector-title">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 id="book-selector-title" className="text-label-md font-semibold uppercase tracking-widest text-font-secondary">
-          Books to ask
+          {title}
         </h2>
         <p className="text-body-sm text-font-secondary">
           {allSelected ? `All ${books?.length ?? 0} indexed books are searched` : `${selectedIds.length} of ${books?.length ?? 0} selected`}
@@ -71,7 +73,7 @@ export function BookSelector({ books, isLoading, error, selectedIds, onChange }:
           <Link to="/books" className="font-medium text-primary underline-offset-4 hover:underline">
             Upload a PDF in the catalog
           </Link>{' '}
-          to start asking.
+          to get started.
         </p>
       )}
       {!!books?.length && (
@@ -90,7 +92,7 @@ export function BookSelector({ books, isLoading, error, selectedIds, onChange }:
           )}
           <div className="relative">
             <PerfectScrollArea className="max-h-52" options={{ wheelPropagation: false }}>
-              <div className="flex flex-wrap gap-2 pr-3" role="group" aria-label="Books to ask">
+              <div className="flex flex-wrap gap-2 pr-3" role="group" aria-label={title}>
                 {!query.trim() && (
                   <button type="button" aria-pressed={allSelected} className={chipClass(allSelected)} onClick={() => onChange([])}>
                     {renderIcon({ icon: 'books', className: 'text-[18px]' })}

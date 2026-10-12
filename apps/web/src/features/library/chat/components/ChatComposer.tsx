@@ -6,7 +6,7 @@ import { askSchema } from '@/features/library/chat/schemas/ask.schema'
 import type { IBook } from '@/features/library/types/book.types'
 import { cn } from '@/utils/cn'
 import { renderIcon } from '@/utils/icon-renderer'
-import { BookSelector } from './BookSelector'
+import { BookSelector } from '@/features/library/components/BookSelector'
 
 interface ChatComposerProps {
   books: IBook[] | undefined

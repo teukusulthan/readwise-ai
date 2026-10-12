@@ -16,3 +16,8 @@ export const CONVERSATION_KEYS = {
   /** Is an answer of this conversation still being generated (GET /chat/active)? */
   active: (id: string) => ['conversations', 'active', id] as const,
 }
+
+/** Semantic passage searches (POST /search/query), keyed by the URL's query and book scope. */
+export const SEARCH_KEYS = {
+  results: (query: string, bookIds: string[]) => ['search', query, bookIds] as const,
+}

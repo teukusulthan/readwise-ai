@@ -5,6 +5,7 @@ import type { IRouteHandle } from '@/types/route'
 
 const CatalogPage = lazy(() => import('@/pages/library/CatalogPage'))
 const BookDetailPage = lazy(() => import('@/pages/library/BookDetailPage'))
+const SearchPage = lazy(() => import('@/pages/library/SearchPage'))
 const AskPage = lazy(() => import('@/pages/library/AskPage'))
 
 const mainRoutes: RouteObject[] = [
@@ -16,6 +17,7 @@ const mainRoutes: RouteObject[] = [
       { path: '/books', element: <Suspense><CatalogPage /></Suspense> },
       // Detail route: reached from catalog cards, not a menu entry.
       { path: '/books/:id', element: <Suspense><BookDetailPage /></Suspense> },
+      { path: '/search', element: <Suspense><SearchPage /></Suspense> },
       // Chat: `/ask` = new chat, `/ask/:conversationId` = saved conversation. Fills the main column.
       { path: '/ask/:conversationId?', element: <Suspense><AskPage /></Suspense>, handle: { fullHeight: true } satisfies IRouteHandle },
       { path: '*', element: <Navigate to="/books" replace /> },
