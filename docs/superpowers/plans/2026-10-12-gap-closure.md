@@ -31,10 +31,13 @@ source; rulings made by the controller are provisional and recorded in the SDD l
 5. **Docs:** append an entry to `changelog/backend.md` and/or `changelog/web.md` (follow the entry
    format at the top of each file; "no sprint"). Update `docs/architecture.md` / `docs/api-spec.md`
    when behaviour or endpoints change.
-6. **Live dev servers** run from this checkout (backend :8021 with auto-reload, web :3001). Do not
-   start/stop them; do not run destructive operations against the dev databases (`library`,
-   `book_chunks`) — tests use `library_test` / `book_chunks_test`.
-7. Commit messages: imperative summary + short body; **no attribution/co-author lines**.
+6. **No live dev servers.** This is a shared multi-user machine: ports 8020, 8021, 3000, 3001 belong
+   to other users. If a task needs a running backend/web for a smoke test, start it on a free port
+   (backend 8025, web 3005), stop it before reporting, and never kill processes you didn't start.
+   Databases come from `docker compose up -d`; if Docker is unavailable, say so in the report and
+   rely on unit tests. Never run destructive operations against the dev databases (`library`,
+   `book_chunks`) — tests use `library_test` / `book_chunks_test`. Never use sudo.
+7. Commit messages: **Conventional Commits** — `<type>(<scope>): <subject>` (type ∈ feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert; lowercase scope e.g. `api`, `web`, `ingestion`, `search`, `auth`, `mcp`; imperative lowercase subject ≤72 chars, no trailing period; optional body wrapped at 72). **No attribution/Co-Authored-By lines.**
 8. No subagents: implementers never dispatch subagents or reviewers.
 
 ---
@@ -328,3 +331,245 @@ reformatting. README badge optional. Changelog.
 - `docs/architecture.md`: reconcile §4–§9 with Tasks 1–13 (no stale "Not yet" items for done work;
   list what remains: S3, pgvector evaluation, Langfuse, cross-language retrieval).
 - Changelog.
+
+---
+
+## Addendum — 2026-10-12 code review findings (Tasks 15–26)
+
+Source: a second read-only review of backend and web (bugs, security, reliability, cleanup).
+File:line references are from commit `1e4c5b8`; re-locate them if code moved. Same Global
+Constraints apply.
+
+### Task 15: Chat survives navigation, Stop, and bad stream frames
+
+**Why:** (a) switching conversations mid-answer and coming back shows a stale thread that does
+not re-attach to the running turn: `ChatView.tsx` keeps `attachCheckedFor` / `restoredScopeFor`
+refs across conversation changes and the conversation query is cached (`staleTime` 5 min in
+`src/config/query-client.ts`); a brand-new chat seeded with `messages: []` shows empty when
+revisited. (b) Stop sets phase `stopped` (`useAskStream.ts` ~:68) so Send re-enables before the
+old stream's `cancelled` event; asking again cancels the old stream whose cleanup skips the
+history refresh, and `setPendingFrom(saved.length)` is computed from a list without the stopped
+turn — the stopped Q/A vanishes. (c) `chat.service.ts` `JSON.parse` of an SSE frame can throw
+inside the reader loop; `sse-client.ts` then only `releaseLock()`s (no `reader.cancel()`), leaving
+the connection open, and reconnects replay the same bad frame until retries run out.
+
+**Do:**
+- When the active conversation changes, invalidate the previous conversation's query and reset
+  the per-conversation refs; move the `chatService.active` lookup into a TanStack `useQuery` keyed
+  by conversation id (AI_GUIDE: components don't call services directly) so re-entering a
+  conversation with a running turn re-attaches.
+- Keep Send disabled after Stop until the stream reports `cancelled` (or ends), with a 5 s
+  fallback; when a new question is sent after a stopped turn, base `pendingFrom` on refreshed
+  history so the stopped turn stays visible.
+- SSE: a frame whose JSON cannot be parsed is skipped with a `console.warn` (not fatal); the
+  reader is `cancel()`ed in `finally` on every exit path.
+- Vitest: switch away mid-stream and back → re-attaches / shows latest; Stop then ask → stopped
+  turn still rendered and Send disabled until `cancelled`; malformed frame skipped and later
+  frames delivered; reader cancelled on abort. Changelog (web).
+
+---
+
+### Task 16: Fresh catalog after indexing; uploads that report real errors and don't time out
+
+**Why:** (a) `useBook.ts` polls a book until indexing finishes but never invalidates the book
+lists; `useBooks` (catalog) never polls — newly indexed books stay "Indexing" in the catalog and
+missing from the chat picker for up to 5 min. (b) `api-client.ts` rejects with a plain object
+(`{...error, message}`), so `useBatchUpload.ts` (`error instanceof Error`) always shows "Upload
+failed". (c) axios `timeout: 30000` applies to uploads; a 100 MB PDF fails on normal links.
+
+**Do:**
+- When a polled book leaves `queued`/`processing`, invalidate the catalog/list queries (and the
+  indexed-books query the chat picker uses). `useBooks`: `refetchInterval` (e.g. 5 s) only while
+  any book in the current page is `queued`/`processing`.
+- `api-client.ts`: reject with an `Error` subclass (e.g. `ApiError extends Error` carrying
+  `status`, `responseCode`, original response) whose `message` is the resolved backend message;
+  keep existing fields callers read. Audit callers that read `.message`/`.response` and keep them
+  working.
+- Uploads: no client timeout for multipart uploads (`timeout: 0`) — other requests keep 30 s.
+- Vitest for each. Changelog (web).
+
+---
+
+### Task 17: One running turn per conversation (backend)
+
+**Why:** `service/chat_session.py` (`set_active`, ~:144) is a plain SET; nothing stops two turns
+on the same conversation (two tabs / double submit) → messages saved Q1,Q2,A1,A2 and
+`history_from` pairs A1 with Q2.
+
+**Do:**
+- Claim the conversation atomically (Redis `SET NX` with the existing TTL/heartbeat semantics, or
+  the equivalent in whatever store `chat_session` uses); release on finish/cancel/error. A second
+  turn while one is running → HTTP 409 with the envelope message "A question is already being
+  answered in this conversation." (streaming endpoint: before the stream starts, so the client
+  gets a normal error response). Stale claims expire with the heartbeat TTL.
+- Web: show that 409 message in the chat error state (check existing error display handles it).
+- Unit tests: concurrent claim → second gets 409; release on completion, cancel, and exception;
+  expired claim can be re-taken. Docs api-spec + changelog.
+
+---
+
+### Task 18: Book edits, deletes and attachments stay consistent with the index
+
+**Why:** (a) `service/book.py` `update()` changes Postgres only; `book_title` is copied into
+every Qdrant point payload (`vector_store.py` upsert) and prompts/citations/search read it —
+renamed books show the old title until reindex. (b) `delete` (~:66-75) checks status then deletes
+non-atomically; a reindex claimed in between upserts vectors for a deleted book (orphans).
+(c) attaching a PDF to an existing book writes `file_path` after `finalize()` outside the `try`;
+two concurrent attaches both pass the `file_sha256` check.
+
+**Do:**
+- Read titles from the Postgres catalog at retrieval time (`retrieve()` already loads a
+  `by_id` catalog in `service/search.py`) for prompts, sources and `/search/query` results; keep
+  the payload field for back-compat but stop trusting it. (Do not rewrite payloads on update.)
+- Delete: atomic `DELETE … WHERE id=%s AND ingestion_status NOT IN ('queued','processing')
+  RETURNING …` (409 when busy, 404 when missing), then delete Qdrant points and the file; the
+  ingestion worker, after upserting, verifies the row still exists and deletes its own points if
+  not.
+- Attach: single guarded statement (`… WHERE id=%s AND file_sha256 IS NULL RETURNING`) that sets
+  hash + path + queued status together; on conflict remove the just-written file and return 409.
+- Unit tests with fakes for each race; integration tests (`-m integration`) for the SQL guards
+  when Docker is available. Changelog + api-spec if responses change.
+
+---
+
+### Task 19: Safe startup defaults
+
+**Why:** (a) legacy boilerplate routers (user, role, group, permission, S3 upload,
+`/monitoring/threadpool`) are mounted with no auth while `BE_JWT_ACTIVE=false`. (b) `api.py`
+enables uvicorn `reload=True` whenever `--worker` is 1, so plain `python api.py` deploys run the
+reloader and any file change kills running ingestions. (c) `JWT_SECRET` / `ENC_SECRET` accept
+empty strings (PyJWT signs with an empty key). (d) Service singletons (`util/postgres.py`,
+Qdrant, embedding, Redis) use unlocked check-then-create; concurrent first requests on the
+64-thread pool can build duplicate pools.
+
+**Do:**
+- Router enablement: when `ENABLED_ROUTERS` is empty, mount the library routers + health + auth
+  only; legacy admin routers (user, role, group, permission, upload, monitoring) mount only when
+  listed explicitly. Document in `.env.example` and AI_GUIDE.
+- Add `--reload` flag (default off); `nx` `serve` target / README dev command pass `--reload`.
+- Validator: when `JWT_ACTIVE` (resp. `ENC_ACTIVE`) is true, the secret must be ≥32 chars or
+  startup fails with a clear message. `.env.example` explains how to generate one.
+- Double-checked locking for each singleton; document the Postgres pool size vs thread count.
+- Tests for router selection, secret validation, reload flag parsing, singleton under threads.
+  Changelog + architecture doc.
+
+---
+
+### Task 20: LLM timeouts and honest error codes
+
+**Why:** `service/llm.py` LiteLLM calls have no timeout/retries (default 600 s) — a stalled
+provider pins a chat session and a worker thread. `util/http_errors.py` maps any `LookupError`
+(incl. `KeyError`/`IndexError` from bugs) to 404; embedding/Qdrant outages surface as 500
+"Internal server error" in `rag.ask_stream`.
+
+**Do:**
+- Settings `BE_LLM_TIMEOUT_SECONDS` (default 120), `BE_LLM_NUM_RETRIES` (default 2),
+  `BE_LLM_FIRST_TOKEN_TIMEOUT_SECONDS` (default 90) passed via the Agno/LiteLLM request params;
+  first-token timeout ends the turn with a user-safe error event.
+- Introduce a project `NotFoundError` and map that (not `LookupError`) to 404; migrate raisers.
+  Map `EmbeddingError` and Qdrant connection errors to 503 "Search service unavailable" in REST
+  and SSE paths.
+- Unit tests for the mapping and timeout propagation. Changelog + architecture doc.
+
+---
+
+### Task 21: Patch vulnerable dependencies and drop unused ones
+
+**Do (backend):** `uv lock --upgrade-package` for urllib3, python-multipart, pymongo, uvicorn (to
+current releases; check uvicorn's `reload`/`workers` API still matches `api.py`); remove direct
+deps not imported anywhere in app/tests/scripts (verify each with grep before removing; reviewer
+candidates: pydash, pytz, tzlocal, python-dateutil, regex, requests). Keep deps used by the
+legacy modules. `uv run pytest` green.
+**Do (web):** upgrade `axios` and `react-router`/`react-router-dom` within their current major
+(fix any breakage); remove the `moment-timezone` side-effect in `src/main.tsx` and the leftover
+service-worker registration + `public/sw.js`; remove dependencies that are never imported
+(verify each with grep over `src/`, configs, and tests — reviewer candidates: echarts, recharts,
+mapbox-gl, wavesurfer.js, styled-components, lodash, dayjs, date-fns, crypto-js, immer,
+@babel/standalone, react-table, @tanstack/react-table, moment/moment-timezone) and the matching
+`manualChunks` in `vite.config.ts`; move test/build-only packages to `devDependencies`. Do NOT
+delete source files in this task (Task 14 owns dead-file removal). `npm ci && npm run typecheck
+&& npm run lint && npm test && npx vite build` green; report bundle size before/after and
+`npm audit --omit=dev` before/after. Changelog (backend + web).
+
+---
+
+### Task 22: Render answers as safe Markdown, announce completion, tighten "general knowledge"
+
+**Why:** models emit Markdown but `AnswerText.tsx` shows it raw; there's no live-region
+announcement when an answer finishes; `citations.ts` (~:286) splits off a "general knowledge"
+box on any paragraph starting "General knowledge of" (optional colon, `/m`).
+
+**Do:**
+- Render answer text with `react-markdown` (+ `remark-gfm`), raw HTML disabled, links
+  `target=_blank rel="noopener noreferrer"`; keep the existing citation chips (`[n]` markers)
+  working inside paragraphs, lists and tables; style with existing tokens (no new theme).
+- Polite live region that announces "Answer ready" / "Answer stopped" / errors once per turn.
+- Require the exact heading format the backend prompt instructs (read `service/llm.py`/prompt
+  text) for the general-knowledge split.
+- Vitest: markdown elements render, `<script>`/raw HTML is not rendered, citations inside lists,
+  live-region text, general-knowledge false positive. Changelog (web).
+
+---
+
+### Task 23: Chat book picker scales past 100 books; upload components in a feature folder
+
+**Why:** `useIndexedBooks.ts` fetches `size: 100`; beyond that books can't be picked and the
+label "All 100 indexed books are searched" is wrong. `features/library/components/UploadBookDialog.tsx`
+and `BatchUploadPanel.tsx` sit outside a feature folder (architecture placement rule).
+
+**Do:**
+- Picker searches server-side (debounced `query` against the list endpoint, indexed only) with
+  paging/infinite scroll; the "all books" label uses the backend total; selected books not in the
+  current page stay shown. Must work for both the chat and (if Task 8 shares it) the search page.
+- Move upload components + their tests to `features/library/upload/components/` (hooks alongside
+  if upload-only), update imports. Vitest. Changelog (web).
+
+---
+
+### Task 24: Per-route rate limits and a bounded ingestion queue
+
+**Why:** one global per-IP limiter (`middleware/rate_limiter.py`); upload/chat/search have no
+tighter budgets, the ingestion queue is unbounded, and behind a proxy all clients share one IP.
+
+**Do:**
+- Settings for per-route budgets (defaults: upload 20/min, chat ask/stream 30/min, search
+  60/min per client) using the existing Redis limiter; 429 with the envelope + `Retry-After`.
+- `BE_TRUSTED_PROXIES` (CIDR list, default empty): only then honour `X-Forwarded-For`.
+- `BE_INGESTION_MAX_QUEUED` (default 50): upload/reindex beyond it → 429 "Indexing queue is
+  full, try again later."; `BE_CHAT_MAX_CONCURRENT_SESSIONS` (default 20) → 429.
+- Unit tests with a fake Redis/clock. Changelog + api-spec.
+
+---
+
+### Task 25: Parse PDFs in a child process
+
+**Why:** Docling runs inside the API process; a PDF that crashes the native parser or exhausts
+memory kills the API and every live chat session.
+
+**Do:**
+- Run `parse` in a separate process (`ProcessPoolExecutor(max_workers=1, max_tasks_per_child=…)`
+  with `spawn` context, or a dedicated subprocess) that loads the cached converter(s) once per
+  child; parent keeps the queue/claim/status logic. Per-book wall-clock timeout
+  `BE_INGESTION_PARSE_TIMEOUT_SECONDS` (default 1800) and optional memory cap
+  `BE_INGESTION_PARSE_MAX_MEMORY_MB` (RLIMIT_AS in the child, default 0 = off). Crash/timeout →
+  book `failed` with a user-safe message, worker recreated, API unaffected. Must keep Task 1
+  options and Task 3 OCR fallback behaviour.
+- Unit tests with a fake parse function that raises / sleeps / segfaults (`os._exit`) in the
+  child. Measure and report per-page timing vs Task 1 numbers on one small PDF. Changelog +
+  architecture doc.
+
+---
+
+### Task 26: Repo hygiene for collaborators
+
+**Why:** `AGENTS.md` / `CLAUDE.md` are tracked but reference `.claude/` rules and skills that are
+git-ignored, so clones get dangling references; `nx/package-lock.json` is untracked.
+
+**Do:**
+- Decide per file: track the project-specific rule files the docs depend on
+  (`.claude/rules/**`, `apps/*/AI_GUIDE.md` already tracked?) — check for secrets/internal
+  hosts first (Global Constraint 1; e.g. the embedding host in `.claude/rules/architecture.md`
+  must be replaced by a placeholder) — or rewrite `AGENTS.md`/`CLAUDE.md` so they don't point at
+  untracked paths. Prefer tracking `.claude/rules/` (sanitised) and leaving skills/settings
+  ignored; update `.gitignore` accordingly.
+- Commit `nx/package-lock.json`. README "Running locally": note the `docker` group requirement.
