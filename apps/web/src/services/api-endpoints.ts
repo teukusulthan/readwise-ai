@@ -28,6 +28,8 @@ export const API_ENDPOINTS = {
     ADD: `${SUFFIX_BASE}/book/add`,
     UPDATE: `${SUFFIX_BASE}/book/update`,
     DELETE: `${SUFFIX_BASE}/book/delete`,
+    /** Plain GET that streams the PDF — used as a link target, not through axios. */
+    FILE: `${SUFFIX_BASE}/book/file`,
     UPLOAD: `${SUFFIX_BASE}/book/upload`,
     REINDEX: `${SUFFIX_BASE}/book/reindex`,
     LOOKUP: `${SUFFIX_BASE}/book/lookup`,

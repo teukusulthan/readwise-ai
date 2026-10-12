@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Open the PDF at the cited page (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/web/src/services/api-endpoints.ts`, `src/features/library/utils/book-file.ts`, `src/features/library/chat/components/SourceList.tsx`, `src/features/library/books/components/BookDocumentPanel.tsx`, tests `book-file.test.ts`, `SourceList.test.tsx`
+> Each chat source now has an "Open page N" link (new tab, `rel="noopener noreferrer"`, hidden when the source has no page) to `${API base}/apps/book/file?id=…#page=N`, and the book detail document panel has an "Open PDF" button.
+
 ### 2026-10-12 · Render answers as safe Markdown, announce completion, tighten "general knowledge" (no sprint) · ✅ Done
 
 **Event:** Files modified

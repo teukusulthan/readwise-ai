@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import type { IAnswerSource } from '@/features/library/chat/types/chat.types'
+import { bookFileUrl } from '@/features/library/utils/book-file'
 import { formatPageRange } from '@/features/library/utils/format'
 import { Expand } from '@/components/ui/expand'
 import { cn } from '@/utils/cn'
@@ -94,6 +95,19 @@ export function SourceList({ sources, activeSource = null, expandAll = false, id
                 <p className="whitespace-pre-wrap border-t border-border-primary bg-background-page px-4 py-3 text-body-md leading-relaxed text-font-primary">
                   {source.text}
                 </p>
+                {source.pageStart != null && (
+                  <div className="border-t border-border-primary bg-background-page px-4 py-2.5">
+                    <a
+                      href={bookFileUrl(source.bookId, source.pageStart)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-body-sm font-semibold text-primary-bold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {renderIcon({ icon: 'arrow-square-out' })}
+                      Open page {source.pageStart}
+                    </a>
+                  </div>
+                )}
               </Expand>
             </li>
           )

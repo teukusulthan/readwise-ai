@@ -6,6 +6,7 @@ import { BookStatusBadge } from '@/features/library/components/BookStatusBadge'
 import { UploadBookDialog } from '@/features/library/components/UploadBookDialog'
 import { BUSY_STATUSES, INGESTION_STATUS_META } from '@/features/library/constants/ingestion-status'
 import type { IBook, TIngestionStatus } from '@/features/library/types/book.types'
+import { bookFileUrl } from '@/features/library/utils/book-file'
 import { formatBytes, formatDateTime } from '@/features/library/utils/format'
 import { cn } from '@/utils/cn'
 import { renderIcon } from '@/utils/icon-renderer'
@@ -130,6 +131,14 @@ export function BookDocumentPanel({ book }: BookDocumentPanelProps) {
           <Button disabled title="Only indexed books can answer questions">
             {renderIcon({ icon: 'chat-circle-text' })}
             Ask this book
+          </Button>
+        )}
+        {document && (
+          <Button asChild variant="outline">
+            <a href={bookFileUrl(book.id)} target="_blank" rel="noopener noreferrer">
+              {renderIcon({ icon: 'file-pdf' })}
+              Open PDF
+            </a>
           </Button>
         )}
         {document && (ingestion.status === 'indexed' || ingestion.status === 'failed') && (
