@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · One running turn per conversation (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/service/chat_session.py`, `apps/backend/router/chat.py`, `apps/backend/tests/unit/test_chat_session.py`, `apps/backend/tests/integration/test_chat_session_redis.py`, `docs/api-spec.md`
+> `POST /chat/stream` claims the conversation atomically (`SET NX EX`) before the stream starts; a second turn gets HTTP 409 "A question is already being answered in this conversation.". The claim is released (compare-and-delete in Lua) on finish, cancel and error; a claim of a dead session (stale heartbeat) is taken over.
+
 ### 2026-10-12 · One error envelope + dev-port CORS (no sprint) · ✅ Done
 
 **Event:** Files modified

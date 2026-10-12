@@ -3,7 +3,7 @@ from collections.abc import AsyncIterable
 from time import time
 from typing import Optional
 
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from loguru import logger
 
@@ -14,7 +14,7 @@ from service.chat_session import ChatSessions, StoredEvent
 from service.conversation import Conversation
 from service.rag import Rag
 from util.helper import get_execution_time, is_include_schema, router_param_builder
-from util.http_errors import to_http_exception
+from util.http_errors import ConflictError, ServiceUnavailableError, to_http_exception
 
 obj = Rag()
 conversations = Conversation(rag=obj)
@@ -43,17 +43,30 @@ def ask(dto: ChatAskDTO):
         raise to_http_exception(error, start_time)
 
 
+async def claim_turn(dto: ChatAskDTO) -> str:
+    """Reserve the conversation before the stream starts, so a busy one is a plain HTTP 409."""
+    start_time = time()
+    try:
+        return await sessions.claim(dto)
+    except ConflictError as error:
+        raise to_http_exception(error, start_time)
+    except Exception:
+        logger.exception("Could not claim the conversation")
+        raise to_http_exception(ServiceUnavailableError("Chat sessions are unavailable (is Redis running?)."), start_time)
+
+
 @router.post("/stream", response_class=EventSourceResponse, include_in_schema=is_include_schema(tag, "stream"))
-async def stream(dto: ChatAskDTO) -> AsyncIterable[ServerSentEvent]:
+async def stream(dto: ChatAskDTO, session_id: str = Depends(claim_turn)) -> AsyncIterable[ServerSentEvent]:
     """
     One saved chat turn as Server-Sent Events (not wrapped in BaseResponse). The answer is generated in a
     background session that survives a client disconnect; every event carries an `id`.
     `session` {sessionId} → `conversation` {id, title, …} → `status` {stage} → `sources` → `delta` {text}…
     → `done` (/chat/ask payload + conversationId, messageId) | `error` {message, code} | `cancelled`.
     Reconnect with GET /chat/stream/{sessionId}?after=<last id>. Omit `conversationId` to start a new conversation.
+    HTTP 409 (before any stream) if a question is already being answered in that conversation.
     """
     try:
-        session_id = await sessions.start(dto)
+        await sessions.start(dto, session_id)
     except Exception:
         # The HTTP status is already 200 once streaming starts, so report failures in-band.
         logger.exception("Could not start a chat session")

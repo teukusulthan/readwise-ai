@@ -26,9 +26,16 @@ async def test_store_round_trip_ids_after_and_ttl(redis_client):
     assert 0 < await redis_client.ttl(f"chat:session:{sid}:events") <= settings.CHAT_SESSION_TTL_SECONDS
     assert (await store.meta(sid))["status"] == "running"
 
-    await store.set_active(CONVERSATION_ID, sid)
+    assert await store.claim_active(CONVERSATION_ID, sid)
+    assert not await store.claim_active(CONVERSATION_ID, "someone-else")   # SET NX: already held
     await store.clear_active(CONVERSATION_ID, "someone-else")       # a different session: untouched
     assert await store.get_active(CONVERSATION_ID) == sid
+    assert not await store.replace_active(CONVERSATION_ID, "someone-else", "x")
+    assert await store.replace_active(CONVERSATION_ID, sid, "taker")   # compare-and-swap
+    await store.clear_active(CONVERSATION_ID, sid)                  # no longer ours: untouched
+    assert await store.get_active(CONVERSATION_ID) == "taker"
+    await store.clear_active(CONVERSATION_ID, "taker")
+    assert await store.get_active(CONVERSATION_ID) is None
 
 
 async def test_answer_survives_disconnect_with_real_redis(redis_client):

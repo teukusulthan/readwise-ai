@@ -59,6 +59,18 @@ describe('useAskStream — surviving a dropped connection', () => {
     expect(resume).not.toHaveBeenCalled()
   })
 
+  it('shows the backend message when the conversation is already answering (409) and does not retry', async () => {
+    const message = 'A question is already being answered in this conversation.'
+    vi.spyOn(chatService, 'stream').mockRejectedValue(new SseHttpError(message, 409))
+    const resume = vi.spyOn(chatService, 'resume')
+    const { result } = renderHook(() => useAskStream())
+    await act(async () => {
+      await result.current.ask({ question: 'Q?' })
+    })
+    expect(result.current.state).toMatchObject({ phase: 'error', error: message })
+    expect(resume).not.toHaveBeenCalled()
+  })
+
   it('Stop asks the server to cancel instead of just disconnecting', async () => {
     let emit: TOnEvent = () => undefined
     let finish: () => void = () => undefined

@@ -17,7 +17,8 @@ Redis keys (expire after CHAT_SESSION_TTL_SECONDS, refreshed while the session r
   chat:session:{id}:events        STREAM  entries {event, data(json)}; entry id = SSE event id
   chat:session:{id}               HASH    status running|done|error|cancelled, conversation_id, heartbeat, created_at
   chat:session:{id}:cancel        STRING  set by cancel(); the runner polls it (works across workers)
-  chat:conversation:{cid}:active  STRING  session id while an answer for that conversation runs
+  chat:conversation:{cid}:active  STRING  session id while an answer for that conversation runs (SET NX: one
+                                          running turn per conversation; a second gets HTTP 409)
 
 A runner refreshes `heartbeat` every few seconds. A reader that finds a "running" session
 with a stale heartbeat (the process died) reports the answer as interrupted instead of
@@ -39,12 +40,19 @@ from config.base import settings
 from dto.chat import ChatAskDTO
 from service import Services
 from service.conversation_repository import parse_conversation_id
+from util.http_errors import ConflictError
 
 TERMINAL_EVENTS = frozenset({"done", "error", "cancelled"})
 HEARTBEAT_SECONDS = 2.0
 READ_BLOCK_MS = 2000
 # Plenty for one answer (a few hundred deltas); stops a runaway session from growing without bound.
 STREAM_MAXLEN = 10_000
+
+TURN_RUNNING_MESSAGE = "A question is already being answered in this conversation."
+
+# Compare-and-delete / compare-and-swap, atomic on the Redis server.
+_RELEASE_LUA = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0"
+_REPLACE_LUA = "if redis.call('get', KEYS[1]) == ARGV[1] then redis.call('set', KEYS[1], ARGV[2], 'EX', ARGV[3]) return 1 end return 0"
 
 _EVENT_ID_RE = re.compile(r"^(0|\d{1,20}-\d{1,20})$")
 
@@ -141,16 +149,21 @@ class RedisSessionStore:
     async def cancel_requested(self, session_id: str) -> bool:
         return bool(await self.client.exists(self._cancel_key(session_id)))
 
-    async def set_active(self, conversation_id: str, session_id: str):
-        await self.client.set(self._active_key(conversation_id), session_id, ex=self.ttl)
+    async def claim_active(self, conversation_id: str, session_id: str) -> bool:
+        """Atomically take the conversation (SET NX EX). False if another turn holds it."""
+        return bool(await self.client.set(self._active_key(conversation_id), session_id, nx=True, ex=self.ttl))
+
+    async def replace_active(self, conversation_id: str, old_session_id: str, session_id: str) -> bool:
+        """Take over a claim still held by `old_session_id` (a dead turn). Atomic."""
+        return bool(await self.client.eval(_REPLACE_LUA, 1, self._active_key(conversation_id),
+                                           old_session_id, session_id, self.ttl))
 
     async def get_active(self, conversation_id: str) -> Optional[str]:
         return await self.client.get(self._active_key(conversation_id))
 
     async def clear_active(self, conversation_id: str, session_id: str):
-        # Only if it still points at this session (a newer turn may have started meanwhile).
-        if await self.get_active(conversation_id) == session_id:
-            await self.client.delete(self._active_key(conversation_id))
+        # Only if it still points at this session (a newer turn may have started meanwhile). Atomic.
+        await self.client.eval(_RELEASE_LUA, 1, self._active_key(conversation_id), session_id)
 
 
 class ChatSessions:
@@ -170,11 +183,55 @@ class ChatSessions:
 
     # ── writing side ────────────────────────────────────────────────
 
-    async def start(self, dto: ChatAskDTO) -> str:
-        """Create the session and start answering in the background. Returns the session id."""
+    @staticmethod
+    def _requested_conversation(dto: ChatAskDTO) -> Optional[str]:
+        try:
+            return str(parse_conversation_id(dto.conversationId)) if dto.conversationId else None
+        except ValueError:
+            return None  # the turn itself reports the bad id
+
+    async def claim(self, dto: ChatAskDTO) -> str:
+        """
+        Reserve the conversation this turn continues, before any stream starts, so a second turn gets
+        a normal HTTP 409 instead of interleaving messages. Returns the new session id to pass to
+        start(). A new conversation needs no claim (it is claimed once it exists). A claim whose
+        session died (finished, or heartbeat stale) is taken over.
+        """
         session_id = str(uuid.uuid4())
-        await self.store.create(session_id)
-        await self.store.append(session_id, "session", json.dumps({"sessionId": session_id}))
+        conversation_id = self._requested_conversation(dto)
+        if conversation_id and not await self._claim(conversation_id, session_id):
+            raise ConflictError(TURN_RUNNING_MESSAGE)
+        return session_id
+
+    async def _claim(self, conversation_id: str, session_id: str) -> bool:
+        for _ in range(2):  # the second pass covers a holder that released between our SET and GET
+            if await self.store.claim_active(conversation_id, session_id):
+                return True
+            holder = await self.store.get_active(conversation_id)
+            if holder is None:
+                continue
+            meta = await self.store.meta(holder)
+            if not meta:  # claimed a moment ago, session not created yet (or both keys are about to expire)
+                return False
+            fresh = time.time() - float(meta.get("heartbeat") or 0) <= settings.CHAT_SESSION_STALE_SECONDS
+            if meta.get("status") == "running" and fresh:
+                return False
+            return await self.store.replace_active(conversation_id, holder, session_id)
+        return False
+
+    async def start(self, dto: ChatAskDTO, session_id: Optional[str] = None) -> str:
+        """
+        Create the session and start answering in the background. Returns the session id.
+        Pass the id from claim() when the conversation was already claimed; otherwise it is claimed here.
+        """
+        if session_id is None:
+            session_id = await self.claim(dto)
+        try:
+            await self.store.create(session_id)
+            await self.store.append(session_id, "session", json.dumps({"sessionId": session_id}))
+        except BaseException:
+            await self._release(self._requested_conversation(dto), session_id)
+            raise
         task = asyncio.create_task(self._run(session_id, dto), name=f"chat-session-{session_id}")
         self._tasks[session_id] = task
         task.add_done_callback(lambda _task: self._tasks.pop(session_id, None))
@@ -182,6 +239,7 @@ class ChatSessions:
 
     async def _run(self, session_id: str, dto: ChatAskDTO):
         watcher = asyncio.create_task(self._watch(session_id, asyncio.current_task()))
+        requested = self._requested_conversation(dto)
         conversation_id, status = None, "error"
         try:
             # aclosing: if we are cancelled mid-append, the turn generator is closed too,
@@ -191,7 +249,8 @@ class ChatSessions:
                     if event == "conversation":
                         conversation_id = data["id"]
                         await self.store.update(session_id, conversation_id=conversation_id)
-                        await self.store.set_active(conversation_id, session_id)
+                        if conversation_id != requested:  # a new conversation: nobody else can hold it yet
+                            await self.store.claim_active(conversation_id, session_id)
                     await self.store.append(session_id, event, json.dumps(data, default=str))
                     if event in ("done", "error"):
                         status = event
@@ -205,10 +264,19 @@ class ChatSessions:
             watcher.cancel()
             try:
                 await self.store.update(session_id, status=status, finished_at=time.time())
-                if conversation_id:
-                    await self.store.clear_active(conversation_id, session_id)
             except Exception:
                 logger.exception("Could not finalize chat session {id}", id=session_id)
+            # Always release the claim (finished, cancelled or failed), even if the status write failed.
+            await self._release(requested, session_id)
+            await self._release(conversation_id, session_id)
+
+    async def _release(self, conversation_id: Optional[str], session_id: str):
+        if not conversation_id:
+            return
+        try:
+            await self.store.clear_active(conversation_id, session_id)
+        except Exception:
+            logger.exception("Could not release conversation {cid}", cid=conversation_id)
 
     async def _watch(self, session_id: str, runner: asyncio.Task):
         """Heartbeat for readers, and cancel requests made through Redis (possibly by another worker)."""

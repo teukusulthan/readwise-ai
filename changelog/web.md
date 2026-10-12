@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Show "question already being answered" (409) in chat (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/web/src/services/sse-client.test.ts`, `apps/web/src/features/library/chat/hooks/useAskStream.resume.test.ts`
+> No code change needed: the SSE client already turns a pre-stream error response into `SseHttpError` with the envelope message and the hook treats 4xx as permanent, so the chat error state shows the backend's 409 text. Locked in with two tests.
+
 ### 2026-10-12 · Fresh catalog after indexing; real upload errors; no upload timeout (no sprint) · ✅ Done
 
 **Event:** Task completed

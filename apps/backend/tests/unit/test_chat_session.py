@@ -7,7 +7,8 @@ import time
 import pytest
 
 from dto.chat import ChatAskDTO
-from service.chat_session import ChatSessions, StoredEvent, parse_event_id
+from service.chat_session import TURN_RUNNING_MESSAGE, ChatSessions, StoredEvent, parse_event_id
+from util.http_errors import ConflictError
 
 
 class MemorySessionStore:
@@ -59,8 +60,17 @@ class MemorySessionStore:
     async def cancel_requested(self, session_id):
         return session_id in self.cancels
 
-    async def set_active(self, conversation_id, session_id):
+    async def claim_active(self, conversation_id, session_id):
+        if conversation_id in self.active:
+            return False
         self.active[conversation_id] = session_id
+        return True
+
+    async def replace_active(self, conversation_id, old_session_id, session_id):
+        if self.active.get(conversation_id) != old_session_id:
+            return False
+        self.active[conversation_id] = session_id
+        return True
 
     async def get_active(self, conversation_id):
         return self.active.get(conversation_id)
@@ -222,3 +232,120 @@ def test_event_id_validation():
     for bad in ("abc", "1-2-3", "$", "+"):
         with pytest.raises(ValueError):
             parse_event_id(bad)
+
+
+# ── one running turn per conversation ────────────────────────────────
+
+CONTINUE = ChatAskDTO(question="And then?", conversationId=CONVERSATION_ID)
+
+
+async def test_second_turn_on_a_running_conversation_is_refused():
+    gate = asyncio.Event()
+    sessions, store, fake = _sessions(gate=gate)
+    first = await sessions.start(CONTINUE)
+    assert store.active[CONVERSATION_ID] == first
+    with pytest.raises(ConflictError, match=TURN_RUNNING_MESSAGE):
+        await sessions.start(CONTINUE)
+    assert store.active[CONVERSATION_ID] == first          # the refused turn did not steal or clear the claim
+    gate.set()
+    await asyncio.wait_for(fake.finished.wait(), 5)
+
+
+async def test_concurrent_claims_only_one_wins():
+    sessions, store, _ = _sessions()
+    results = await asyncio.gather(sessions.claim(CONTINUE), sessions.claim(CONTINUE), return_exceptions=True)
+    assert sum(isinstance(r, ConflictError) for r in results) == 1
+    assert sum(isinstance(r, str) for r in results) == 1
+
+
+async def test_claim_is_released_when_the_answer_completes():
+    sessions, store, fake = _sessions()
+    session_id = await sessions.start(CONTINUE)
+    await asyncio.wait_for(_collect(sessions, session_id), 5)
+    await _until(lambda: CONVERSATION_ID not in store.active)
+    await sessions.start(CONTINUE)                          # the next question is accepted
+
+
+async def test_claim_is_released_when_the_answer_is_cancelled():
+    gate = asyncio.Event()
+    sessions, store, fake = _sessions(gate=gate)
+    session_id = await sessions.start(CONTINUE)
+    await _until(lambda: any(e.event == "delta" for e in store.events.get(session_id, [])))   # mid-answer
+    assert store.active[CONVERSATION_ID] == session_id
+    await sessions.cancel(session_id)
+    await asyncio.wait_for(fake.finished.wait(), 5)
+    await _until(lambda: CONVERSATION_ID not in store.active)
+
+
+async def test_claim_is_released_when_the_turn_raises():
+    sessions, store, fake = _sessions(fail=True)
+    session_id = await sessions.start(CONTINUE)
+    await asyncio.wait_for(_collect(sessions, session_id), 5)
+    await _until(lambda: CONVERSATION_ID not in store.active)
+
+
+async def test_claim_is_released_when_the_session_cannot_be_created():
+    sessions, store, _ = _sessions()
+
+    async def broken(session_id):
+        raise ConnectionError("redis down")
+
+    store.create = broken
+    with pytest.raises(ConnectionError):
+        await sessions.start(CONTINUE)
+    assert CONVERSATION_ID not in store.active
+
+
+async def test_claim_of_a_dead_turn_can_be_taken_over():
+    sessions, store, _ = _sessions()
+    store.active[CONVERSATION_ID] = "dead-session"
+    store.metas["dead-session"] = {"status": "running", "heartbeat": str(time.time() - 3600)}   # expired heartbeat
+    new_id = await sessions.claim(CONTINUE)
+    assert store.active[CONVERSATION_ID] == new_id
+
+    store.active[CONVERSATION_ID] = "finished-session"
+    store.metas["finished-session"] = {"status": "done", "heartbeat": str(time.time())}
+    assert await sessions.claim(CONTINUE)
+
+
+async def test_live_claim_is_not_taken_over():
+    sessions, store, _ = _sessions()
+    store.active[CONVERSATION_ID] = "live"
+    store.metas["live"] = {"status": "running", "heartbeat": str(time.time())}
+    with pytest.raises(ConflictError):
+        await sessions.claim(CONTINUE)
+
+
+async def test_new_conversations_and_bad_ids_need_no_claim():
+    gate = asyncio.Event()
+    sessions, store, fake = _sessions(gate=gate)
+    await sessions.claim(DTO)
+    await sessions.claim(ChatAskDTO(question="x", conversationId="not-a-uuid"))
+    assert store.active == {}
+    first = await sessions.start(DTO)                       # a new conversation is claimed once it exists
+    await _until(lambda: store.active.get(CONVERSATION_ID) == first)
+    gate.set()
+    await _until(lambda: CONVERSATION_ID not in store.active)
+
+
+async def test_stream_endpoint_answers_409_before_any_stream_starts(monkeypatch):
+    import httpx
+    from fastapi import FastAPI
+
+    import router.chat as chat_router
+
+    gate = asyncio.Event()
+    sessions, store, fake = _sessions(gate=gate)
+    monkeypatch.setattr(chat_router, "sessions", sessions)
+    app = FastAPI()
+    app.include_router(chat_router.router, dependencies=[])
+    app.dependency_overrides = {d.call: (lambda: None) for r in app.routes for d in getattr(getattr(r, "dependant", None), "dependencies", []) if d.call is not chat_router.claim_turn}
+    store.active[CONVERSATION_ID] = "live"
+    store.metas["live"] = {"status": "running", "heartbeat": str(time.time())}
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/chat/stream", json={"question": "again", "conversationId": CONVERSATION_ID})
+    assert response.status_code == 409
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["detail"]["metaData"]["message"] == TURN_RUNNING_MESSAGE
+    assert store.active[CONVERSATION_ID] == "live"

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { createSseParser, streamSse, type ISseMessage } from './sse-client'
+import { createSseParser, SseHttpError, streamSse, type ISseMessage } from './sse-client'
 
 function parseWithIds(chunks: string[]): ISseMessage[] {
   const messages: ISseMessage[] = []
@@ -114,5 +114,15 @@ describe('streamSse', () => {
 
     await streamSse({ path: '/chat/stream', onMessage: vi.fn() })
     expect(reader.cancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a 409 before the stream starts with the backend envelope message', async () => {
+    const message = 'A question is already being answered in this conversation.'
+    const body = JSON.stringify({ metaData: { status: false, responseCode: 409, message } })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, { status: 409, headers: { 'Content-Type': 'application/json' } })))
+
+    const error = await streamSse({ path: '/chat/stream', body: {}, onMessage: vi.fn() }).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(SseHttpError)
+    expect(error).toMatchObject({ message, status: 409 })
   })
 })
