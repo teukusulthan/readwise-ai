@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Self-healing indexing: resume after restart + OCR fallback (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/migrations/003_ingestion_attempts.sql`, `apps/backend/service/ingestion.py`, `apps/backend/service/book_repository.py`, `apps/backend/service/book.py`, `apps/backend/util/document_parser.py`, `apps/backend/config/base.py`, `apps/backend/.env.example`, `apps/backend/tests/unit/{test_ingestion,test_document_parser_unit,test_book_consistency}.py`, `apps/backend/tests/integration/test_ingestion_recovery.py`, `docs/architecture.md`, `docs/api-spec.md`, `docs/database-schema.md`
+> New column `books.ingestion_attempts` (migration 003); every worker claim (`queued`→`processing`, one atomic UPDATE) increments it and `POST /book/reindex` resets it to 0; exposed as `ingestion.attempts`. At startup one UPDATE re-queues books left `queued`/`processing` with attempts < `BE_INGESTION_MAX_ATTEMPTS` (3) and hands them to the worker (not subject to `BE_INGESTION_MAX_QUEUED`); at the cap they become `failed` with the existing interrupted message; counts are logged. Assumes one API process owns the queue. OCR fallback (`BE_DOCLING_OCR_FALLBACK`, default true): a parse with OCR off that yields no chunks is retried once with a separately cached OCR converter (same threads/layout batch); if that is also empty the book fails with "No text could be extracted, even with OCR. …". A final `indexed`/`failed` write that matches no row now logs a warning. Known gap: with the current lock (docling 2.129.0 + rapidocr 3.10.0) Docling finds no OCR engine, so the OCR pass extracts nothing until rapidocr is pinned to 3.9.x (not done here: it upgrades numpy/pandas/opencv).
+
 ### 2026-10-12 · Patch vulnerable dependencies, drop unused pins (no sprint) · ✅ Done
 
 **Event:** Files modified

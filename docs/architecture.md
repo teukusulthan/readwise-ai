@@ -50,7 +50,8 @@ library-rag/
      ├── Local disk ........ uploaded PDFs: storage/books/<book_id>.pdf
      └── MongoDB + Redis ... existing boilerplate auth/user modules only
  Background: one daemon ingestion thread inside the API process runs Docling + embedding + Qdrant writes
- (daemon = shutdown/auto-reload never waits for it; an interrupted job is marked failed at the next startup).
+ (daemon = shutdown/auto-reload never waits for it; an interrupted job is re-queued at the next startup,
+ up to BE_INGESTION_MAX_ATTEMPTS claims, then marked failed).
 ```
 
 ---
@@ -71,20 +72,32 @@ POST /book/upload  (multipart: file, optional bookId | title)
      4. util/storage.finalize          move temp file → storage/books/<book_id>.pdf
      5. service/ingestion.enqueue      hand the book id to the worker thread   ──► 200 + Book JSON
   worker thread: Ingestion.run
-     6. claim: UPDATE … SET status='processing' WHERE status='queued'   (atomic; a job runs once)
+     6. claim: UPDATE … SET status='processing', ingestion_attempts + 1 WHERE status='queued'
+        (atomic; a job runs once; every claim counts an attempt)
      7. util/document_parser.parse_pdf
           page count first (pypdfium2) → reject if > MAX_PDF_PAGES
           Docling DocumentConverter (OCR off, table structure on, 4 CPU threads) in windows of 20 pages
           → one DoclingDocument per window (absolute page numbers; heading carried across window boundaries)
           HybridChunker(tokenizer = Qwen3 tokenizer, max 512 tokens, merge_peers)
           → chunks: text, embed_text (headings + text), headings, page_start, page_end
+          zero chunks (scanned PDF) and BE_DOCLING_OCR_FALLBACK=true → parse once more with a second,
+          separately cached converter with OCR on (same threads / layout batch); still nothing →
+          failed "No text could be extracted, even with OCR. …". Logs say which path ran.
      8. for each batch of 32 chunks: Services.embedding().embed_documents(embed_text)
                                      VectorStore.upsert_chunks  (point id = uuid5(book_id, chunk_index))
      9. delete leftover points with chunk_index ≥ new count (re-index that produced fewer chunks)
     10. book row deleted meanwhile? → delete this book's points, stop (no orphan vectors)
         status='indexed', chunk_count, page_count, embedding_model, indexed_at
         on error: status='failed', ingestion_error (user-safe message) → retry with POST /book/reindex
-At startup: migrations run; jobs left queued/processing by a crash are marked failed.
+        (reindex resets ingestion_attempts to 0). The final indexed/failed write is guarded
+        (WHERE status='processing'); if no row matched, a warning is logged.
+At startup (Ingestion.recover_interrupted): migrations run, then one UPDATE moves every book left
+queued/processing by the previous process: ingestion_attempts < BE_INGESTION_MAX_ATTEMPTS (3) → 'queued'
+and handed to the worker again (interrupted 'processing' job first, then queue order; the
+BE_INGESTION_MAX_QUEUED cap does not apply — it is not a new submission); at the cap → 'failed'
+"Ingestion was interrupted (server restart). Retry with reindex." Counts of both are logged.
+Assumption: exactly one API process owns the ingestion queue. With several processes, a starting one
+would re-queue jobs another is still running (a multi-process owner/heartbeat design is out of scope).
 ```
 
 ### 4.2 Semantic search
@@ -283,7 +296,7 @@ deleted book's points are never returned; the worker drops points of a book dele
 - Rate limits and caps (see `docs/api-spec.md` § Rate limits): per-route fixed-window budgets live in `middleware/route_limits.py` (Redis, per user else per IP via `util/client_ip.py`; `X-Forwarded-For` only from `BE_TRUSTED_PROXIES`). The ingestion queue cap counts `queued` books in Postgres (`BookRepository.count_queued`), so it holds across processes; the chat cap counts running sessions with a fresh heartbeat in the Redis ZSET `chat:sessions:running`, checked in `ChatSessions.claim` and released with the conversation claim. Both caps are soft (check-then-insert) and can overshoot by a few under a simultaneous burst.
 - Agno returns provider errors as a normal result with `status=ERROR`; `service/llm.py` converts that into a 503 with a short message (bad key / rate limit / unknown model) and logs the details.
 - **Cross-language questions are weak**: an Indonesian question about an English book ranked the wrong chapter first.
-- **Scanned PDFs** fail with "No text could be extracted" (OCR is off for speed/RAM; `BE_DOCLING_DO_OCR=true` enables it).
+- **Scanned PDFs** are parsed twice: first with OCR off (fast), then — only when that yields no text — once more with OCR on (`BE_DOCLING_OCR_FALLBACK`, default true). OCR is much slower; if it also finds nothing the book fails with "No text could be extracted, even with OCR. …". `BE_DOCLING_DO_OCR=true` turns OCR on for every book (no fallback). **The OCR pass needs a working Docling OCR engine:** with the current lock (docling 2.129.0 + rapidocr 3.10.0, which no longer exposes `PP_OCRV6_LANGS`) Docling logs "No OCR engine found" and the OCR pass extracts nothing. rapidocr 3.9.x works with docling, but resolving it upgrades numpy/pandas/opencv, so that pin is a separate dependency decision.
 - **No login page**: local `.env` runs with `BE_JWT_ACTIVE=false`. The book endpoints use the standard JWT dependency, so enabling it protects them once a login UI exists.
 - **One shared library** — no per-user ownership.
 - 🛠 Not yet: MCP server, Docker images for the apps, S3 storage.
@@ -299,7 +312,7 @@ uv sync && uv run python api.py --port 8020           # migrations run automatic
 cd apps/web && npm install && npm run dev             # http://localhost:3000
 ```
 
-Dev auto-reload is opt-in (`--reload`; the nx `serve` target passes it) and watches only the source packages (`RELOAD_DIRS` in `api.py`): a reload kills indexing jobs running in the API process (they are marked failed and need **Reindex**), so editing `tests/`, `scripts/` or writing to `storage/` does not restart the server. After editing `api.py` itself, restart by hand.
+Dev auto-reload is opt-in (`--reload`; the nx `serve` target passes it) and watches only the source packages (`RELOAD_DIRS` in `api.py`): a reload kills indexing jobs running in the API process (the next startup re-queues them, up to `BE_INGESTION_MAX_ATTEMPTS` claims; after that they are marked failed and need **Reindex**), so editing `tests/`, `scripts/` or writing to `storage/` does not restart the server. After editing `api.py` itself, restart by hand.
 
 Ports taken by another project? Run the backend on another port and point the web proxy at it in `apps/web/env/.env`:
 `PORT=3001` and `BACKEND_PROXY_TARGET=http://localhost:8021`.

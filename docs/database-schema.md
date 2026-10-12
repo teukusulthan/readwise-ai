@@ -148,6 +148,8 @@ Columns:
   - file_name, file_path, file_sha256: text · file_size_bytes: bigint · page_count: integer
   - ingestion_status: text — none | queued | processing | indexed | failed   (none = metadata only)
   - ingestion_error: text · chunk_count: integer · embedding_model: text · indexed_at: timestamptz
+  - ingestion_attempts: integer NOT NULL DEFAULT 0 (≥ 0) — worker claims since upload/reindex;
+    startup recovery re-queues interrupted jobs below BE_INGESTION_MAX_ATTEMPTS   (migrations/003_ingestion_attempts.sql)
   - created_at, updated_at: timestamptz
 Indexes:
   - unique (isbn) WHERE isbn IS NOT NULL

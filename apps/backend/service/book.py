@@ -160,7 +160,7 @@ class Book:
             raise ConflictError("This book has no stored document to index. Upload a PDF first.")
         self._ensure_queue_room()
         claimed = self.repository.transition_status(
-            row["id"], "queued", from_statuses=("indexed", "failed"), ingestion_error=None
+            row["id"], "queued", from_statuses=("indexed", "failed"), ingestion_error=None, ingestion_attempts=0
         )
         if not claimed:
             raise ConflictError(f"The book is already {row['ingestion_status']}.")
@@ -228,6 +228,8 @@ def to_api(row: dict) -> dict:
         "ingestion": {
             "status": status,
             "error": row["ingestion_error"],
+            # Worker claims since the last upload/reindex (startup recovery resumes below the cap).
+            "attempts": row["ingestion_attempts"],
             "chunkCount": row["chunk_count"],
             "embeddingModel": row["embedding_model"],
             "indexedAt": _iso(row["indexed_at"]),

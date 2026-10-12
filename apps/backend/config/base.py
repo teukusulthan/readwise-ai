@@ -159,7 +159,12 @@ class BaseSetting(BaseSettings):
     INGESTION_WORKERS: int = Field(default=1)
     # Upload/reindex is refused with HTTP 429 while this many books already wait in `queued` (0 = no cap).
     INGESTION_MAX_QUEUED: int = Field(default=50)
+    # Jobs left queued/processing by a restart are re-queued at startup while the book has been claimed
+    # fewer than this many times; at the cap they are marked failed (0 = never resume, always fail).
+    INGESTION_MAX_ATTEMPTS: int = Field(default=3)
     DOCLING_DO_OCR: bool = Field(default=False)
+    # When a parse with OCR off yields no text (scanned PDF), parse that book once more with OCR on.
+    DOCLING_OCR_FALLBACK: bool = Field(default=True)
     DOCLING_DO_TABLE_STRUCTURE: bool = Field(default=True)
     # Parse big PDFs in windows of N pages so memory stays bounded (a 152-page book parsed in one
     # go reached 3.2 GB RSS). Page numbers stay absolute; headings carry over between windows.

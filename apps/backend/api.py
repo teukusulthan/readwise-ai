@@ -71,7 +71,7 @@ threadpool = ThreadPoolExecutor(
 
 
 def _prepare_book_library():
-    """Apply database migrations and fail jobs that a previous process left unfinished."""
+    """Apply database migrations, then resume (or, at the attempt cap, fail) jobs a previous process left unfinished."""
     if not settings.POSTGRES_URI:
         logger.warning("BE_POSTGRES_URI is not set — book library endpoints are unavailable.")
         return

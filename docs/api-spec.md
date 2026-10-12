@@ -159,7 +159,7 @@ If you need to use these modules, you can access the documentation for the Auth,
 | GET | `/book/get-one` | Book details incl. `ingestion` status and `searchable` | JWTBearer |
 | DELETE | `/book/delete` | Delete book, stored PDF and vectors (409 while indexing) | JWTBearer |
 | POST | `/book/upload` | Upload a PDF (multipart `file`, optional `bookId` / `title`) and queue indexing; 409 on duplicate file or when the `bookId` book already has a document (also for the loser of two concurrent attaches) | JWTBearer |
-| POST | `/book/reindex` | Re-run indexing for an `indexed`/`failed` book (`?id=`) | JWTBearer |
+| POST | `/book/reindex` | Re-run indexing for an `indexed`/`failed` book (`?id=`); resets `ingestion.attempts` to 0 | JWTBearer |
 | GET | `/book/lookup` | Search Open Library (`?q=`) for books to import | JWTBearer |
 | POST | `/book/import` | Import metadata from Open Library by ISBN | JWTBearer |
 | POST | `/search/query` | Semantic search over indexed books → passages with section/page | JWTBearer |
@@ -325,11 +325,16 @@ Full flows and response shapes: [`docs/architecture.md`](./architecture.md) §4.
   "hasDocument": true,
   "document": { "fileName": "string", "sizeBytes": 35123, "pageCount": 3 },
   "ingestion": { "status": "none|queued|processing|indexed|failed", "error": "string|null",
-                 "chunkCount": 5, "embeddingModel": "Qwen3-Embedding-0.6B", "indexedAt": "ISO-8601|null" },
+                 "attempts": 1, "chunkCount": 5, "embeddingModel": "Qwen3-Embedding-0.6B",
+                 "indexedAt": "ISO-8601|null" },
   "searchable": true,
   "createdAt": "ISO-8601", "updatedAt": "ISO-8601"
 }
 ```
+
+`ingestion.attempts` counts how many times the worker has claimed the book (`queued` → `processing`)
+since its upload or last reindex. A job interrupted by a restart is resumed at startup while
+`attempts < BE_INGESTION_MAX_ATTEMPTS` (3); at the cap it becomes `failed`.
 
 ### `POST /chat/ask`
 

@@ -30,12 +30,22 @@ _converter_lock = threading.Lock()
 @lru_cache(maxsize=1)
 def _converter():
     # Building the converter loads the layout/table models — do it once per process.
+    return _build_converter(do_ocr=settings.DOCLING_DO_OCR)
+
+
+@lru_cache(maxsize=1)
+def _ocr_converter():
+    # OCR fallback for scanned PDFs: a separate instance, built only the first time it is needed.
+    return _build_converter(do_ocr=True)
+
+
+def _build_converter(do_ocr: bool):
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import AcceleratorOptions, PdfPipelineOptions
     from docling.document_converter import DocumentConverter, PdfFormatOption
 
     options = PdfPipelineOptions(
-        do_ocr=settings.DOCLING_DO_OCR,
+        do_ocr=do_ocr,
         do_table_structure=settings.DOCLING_DO_TABLE_STRUCTURE,
         generate_page_images=False,
         generate_picture_images=False,
@@ -69,14 +79,16 @@ def count_pages(pdf_path: str) -> int:
         pdf.close()
 
 
-def convert(pdf_path: str, page_range: Optional[tuple[int, int]] = None):
+def convert(pdf_path: str, page_range: Optional[tuple[int, int]] = None, ocr: bool = False):
     """
     PDF file (or a 1-based inclusive page range of it) → DoclingDocument.
     Page numbers in the result stay absolute. Serialized: Docling models are heavy.
+    `ocr=True` uses the OCR converter (scanned PDFs); otherwise the configured one.
     """
     kwargs = {"page_range": page_range} if page_range else {}
     with _converter_lock:
-        result = _converter().convert(
+        converter = _ocr_converter() if ocr else _converter()  # built under the lock: models load once
+        result = converter.convert(
             pdf_path,
             max_num_pages=settings.MAX_PDF_PAGES,
             max_file_size=settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024,
@@ -101,24 +113,25 @@ def chunk_document(document) -> Iterator[dict]:
         }
 
 
-def parse_pdf(pdf_path: str) -> tuple[Optional[int], Iterator[dict]]:
+def parse_pdf(pdf_path: str, ocr: bool = False) -> tuple[Optional[int], Iterator[dict]]:
     """
     Entry point used by the ingestion job: (page_count, lazily generated chunks).
 
     The page count is known before any parsing (so the page limit is checked cheaply),
     and the PDF is converted in windows of DOCLING_PAGE_WINDOW pages: only one window's
-    document is in memory at a time.
+    document is in memory at a time. `ocr=True` is the job's fallback for scanned PDFs.
     """
     page_count = count_pages(pdf_path)
-    return page_count, _windowed_chunks(pdf_path, page_count, max(1, settings.DOCLING_PAGE_WINDOW))
+    return page_count, _windowed_chunks(pdf_path, page_count, max(1, settings.DOCLING_PAGE_WINDOW), ocr=ocr)
 
 
-def _windowed_chunks(pdf_path: str, page_count: int, window: int) -> Iterator[dict]:
+def _windowed_chunks(pdf_path: str, page_count: int, window: int, ocr: bool = False) -> Iterator[dict]:
     last_headings: list[str] = []
     for start in range(1, page_count + 1, window):
         end = min(page_count, start + window - 1)
-        logger.info("Parsing pages {start}-{end} of {total}", start=start, end=end, total=page_count)
-        document = convert(pdf_path, page_range=(start, end))
+        logger.info("Parsing pages {start}-{end} of {total}{ocr}", start=start, end=end, total=page_count,
+                    ocr=" with OCR" if ocr else "")
+        document = convert(pdf_path, page_range=(start, end), ocr=ocr)
         for chunk in chunk_document(document):
             # A section that continues past a window boundary has no heading in the next
             # window's document: keep the heading it had in the previous window.

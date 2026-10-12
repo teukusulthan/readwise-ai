@@ -26,7 +26,7 @@ def _row(status="indexed", sha=None, file_path=None, title="Saltmere"):
         "indexed_at", "created_at", "updated_at",
     )}
     return {**row, "id": uuid.uuid4(), "title": title, "ingestion_status": status, "file_sha256": sha,
-            "file_path": file_path, "ingestion_error": None}
+            "file_path": file_path, "ingestion_error": None, "ingestion_attempts": 0}
 
 
 class FakeBooks:
@@ -54,6 +54,13 @@ class FakeBooks:
 
     def count_queued(self):
         return sum(1 for row in self.rows.values() if row.get("ingestion_status") == "queued")
+
+    def transition_status(self, book_id, to_status, from_statuses, **fields):
+        row = self.rows.get(str(book_id))
+        if row is None or row["ingestion_status"] not in from_statuses:
+            return None
+        row.update(fields, ingestion_status=to_status)
+        return dict(row)
 
     def attach_document(self, book_id, fields):
         self.attach_calls.append(dict(fields))
@@ -178,3 +185,18 @@ def test_attach_to_a_book_deleted_meanwhile_is_404_and_leaves_no_file(storage_di
     with pytest.raises(BookNotFoundError):
         service.upload_document(io.BytesIO(PDF_A), "a.pdf", book_id=book_id)
     assert list(storage_dir.iterdir()) == [] and service.ingestion.queued == []
+
+
+# ── reindex ───────────────────────────────────────────────────────────
+
+def test_reindex_requeues_and_resets_attempts(storage_dir):
+    pdf = storage_dir / "book.pdf"
+    pdf.write_bytes(PDF_A)
+    row = {**_row(status="failed", sha="abc", file_path=str(pdf)), "ingestion_error": "Ingestion was interrupted",
+           "ingestion_attempts": 3}
+    service, repo = _service(row)
+
+    result = service.reindex(str(row["id"]))
+    assert repo.rows[str(row["id"])]["ingestion_attempts"] == 0
+    assert result["ingestion"] == {**result["ingestion"], "status": "queued", "error": None, "attempts": 0}
+    assert service.ingestion.queued == [str(row["id"])]

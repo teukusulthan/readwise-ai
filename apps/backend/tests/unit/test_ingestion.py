@@ -3,7 +3,8 @@ import uuid
 import pytest
 from qdrant_client import QdrantClient
 
-from service.ingestion import Ingestion
+from service.ingestion import NO_TEXT_MESSAGE, NO_TEXT_WITH_OCR_MESSAGE, Ingestion
+from service.book_repository import INTERRUPTED_MESSAGE
 from service.vector_store import VectorStore
 
 DIM = 4
@@ -19,6 +20,13 @@ class FakeRepository:
 
     def get(self, book_id):
         return None if self.deleted else dict(self.book)
+
+    def claim_queued(self, book_id):
+        if self.deleted or self.book["ingestion_status"] != "queued":
+            return None
+        self.book.update(ingestion_status="processing", ingestion_attempts=self.book["ingestion_attempts"] + 1)
+        self.history.append("processing")
+        return dict(self.book)
 
     def transition_status(self, book_id, to_status, from_statuses, **fields):
         if self.deleted or self.book["ingestion_status"] not in from_statuses:
@@ -39,18 +47,29 @@ class FakeEmbedder:
         return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
 
 
-def _book(status="queued"):
+def _book(status="queued", attempts=0):
     return {"id": uuid.uuid4(), "title": "Sample", "file_path": "/tmp/sample.pdf", "ingestion_status": status,
-            "ingestion_error": None}
+            "ingestion_error": None, "ingestion_attempts": attempts}
 
 
 def _parser(chunks, pages=3):
-    return lambda path: (pages, iter(chunks))
+    return lambda path, ocr=False: (pages, iter(chunks))
 
 
 def _chunks(n):
     return [{"text": f"text {i}", "embed_text": f"Heading\ntext {i}", "headings": ["Heading"],
              "page_start": 1, "page_end": 1} for i in range(n)]
+
+
+@pytest.fixture
+def caplog_loguru():
+    """Messages loguru logs during the test."""
+    from loguru import logger
+
+    messages = []
+    handler = logger.add(lambda message: messages.append(message.record["message"]), level="DEBUG")
+    yield messages
+    logger.remove(handler)
 
 
 @pytest.fixture
@@ -91,11 +110,12 @@ def test_runs_only_when_queued(store):
     assert ingestion.repository.history == ["indexed"]
 
 
-def test_no_text_fails_with_helpful_message(store):
+def test_no_text_fails_with_helpful_message(store, settings, monkeypatch):
+    monkeypatch.setattr(settings, "DOCLING_OCR_FALLBACK", False)
     book = _book()
     _ingestion(book, store, _parser([{"text": "  "}])).enqueue(book["id"])
     assert book["ingestion_status"] == "failed"
-    assert "No text could be extracted" in book["ingestion_error"]
+    assert book["ingestion_error"] == NO_TEXT_MESSAGE
 
 
 def test_unexpected_error_fails_without_leaking_details(store):
@@ -161,3 +181,141 @@ def test_worker_threads_are_daemons_so_shutdown_never_waits():
     assert done.wait(5)
     workers = [t for t in threading.enumerate() if t.name.startswith("ingest-")]
     assert workers and all(t.daemon for t in workers)
+
+
+# ── attempts + startup recovery ───────────────────────────────────────
+
+def test_each_claim_counts_an_attempt(store):
+    book = _book(attempts=1)
+    ingestion = _ingestion(book, store, _parser(_chunks(2)))
+    ingestion.enqueue(book["id"])
+    assert book["ingestion_attempts"] == 2 and book["ingestion_status"] == "indexed"
+    ingestion.enqueue(book["id"])  # not queued any more: no claim, no attempt
+    assert book["ingestion_attempts"] == 2
+
+
+class FakeLibrary:
+    """Books table for startup recovery; recover_interrupted models the repository's single UPDATE."""
+
+    def __init__(self, *books):
+        self.books = {str(b["id"]): b for b in books}
+
+    def recover_interrupted(self, max_attempts):
+        requeued, failed = [], 0
+        for book in self.books.values():
+            if book["ingestion_status"] not in ("queued", "processing"):
+                continue
+            if book["ingestion_attempts"] < max_attempts:
+                book.update(ingestion_status="queued", ingestion_error=None)
+                requeued.append(book["id"])
+            else:
+                book.update(ingestion_status="failed", ingestion_error=INTERRUPTED_MESSAGE)
+                failed += 1
+        return requeued, failed
+
+    def claim_queued(self, book_id):
+        book = self.books[str(book_id)]
+        if book["ingestion_status"] != "queued":
+            return None
+        book.update(ingestion_status="processing", ingestion_attempts=book["ingestion_attempts"] + 1)
+        return dict(book)
+
+
+class RecordingIngestion(Ingestion):
+    def __init__(self, repository):
+        super().__init__(repository=repository, vector_store=object(), embedder=FakeEmbedder(), parser=_parser([]))
+        self.enqueued = []
+
+    def enqueue(self, book_id):
+        self.enqueued.append(book_id)
+
+
+def test_recovery_requeues_jobs_below_the_attempt_cap_and_fails_the_rest(settings, monkeypatch):
+    monkeypatch.setattr(settings, "INGESTION_MAX_ATTEMPTS", 3)
+    monkeypatch.setattr(settings, "INGESTION_MAX_QUEUED", 1)  # recovery is not a new submission: no cap
+    waiting, running = _book("queued", attempts=0), _book("processing", attempts=2)
+    exhausted, done = _book("processing", attempts=3), _book("indexed", attempts=1)
+    library = FakeLibrary(waiting, running, exhausted, done)
+    ingestion = RecordingIngestion(library)
+
+    assert ingestion.recover_interrupted() == (2, 1)
+    assert set(ingestion.enqueued) == {waiting["id"], running["id"]}
+    assert waiting["ingestion_status"] == running["ingestion_status"] == "queued"
+    assert exhausted["ingestion_status"] == "failed" and exhausted["ingestion_error"] == INTERRUPTED_MESSAGE
+    assert done["ingestion_status"] == "indexed"
+
+
+def test_recovery_with_nothing_interrupted_enqueues_nothing():
+    ingestion = RecordingIngestion(FakeLibrary(_book("indexed"), _book("failed")))
+    assert ingestion.recover_interrupted() == (0, 0) and ingestion.enqueued == []
+
+
+def test_a_resumed_job_runs_to_completion_and_counts_its_attempt(store, settings, monkeypatch):
+    monkeypatch.setattr(settings, "INGESTION_MAX_ATTEMPTS", 3)
+    book = _book("processing", attempts=1)
+    repository = FakeRepository(book)
+    repository.recover_interrupted = FakeLibrary(book).recover_interrupted
+    ingestion = Ingestion(repository=repository, vector_store=store, embedder=FakeEmbedder(),
+                          parser=_parser(_chunks(2)), run_inline=True)
+    assert ingestion.recover_interrupted() == (1, 0)
+    assert book["ingestion_status"] == "indexed" and book["ingestion_attempts"] == 2
+
+
+# ── final status writes ───────────────────────────────────────────────
+
+def test_a_lost_final_status_write_is_logged_not_raised(store, caplog_loguru):
+    book = _book()
+    ingestion = _ingestion(book, store, _parser(_chunks(1)))
+    ingestion.repository.transition_status = lambda *a, **k: None  # status changed underneath the job
+    ingestion.enqueue(book["id"])
+    assert any("Could not mark book" in m and "indexed" in m for m in caplog_loguru)
+
+
+# ── OCR fallback ──────────────────────────────────────────────────────
+
+class FakeParser:
+    """Records each call's `ocr` flag; returns `without_ocr` / `with_ocr` chunks."""
+
+    def __init__(self, without_ocr, with_ocr):
+        self.results = {False: without_ocr, True: with_ocr}
+        self.calls = []
+
+    def __call__(self, path, ocr=False):
+        self.calls.append(ocr)
+        return 3, iter([dict(c) for c in self.results[ocr]])
+
+
+def test_text_pdf_is_parsed_once_without_ocr(store):
+    book, parser = _book(), FakeParser(_chunks(2), _chunks(5))
+    _ingestion(book, store, parser).enqueue(book["id"])
+    assert parser.calls == [False] and book["chunk_count"] == 2
+
+
+def test_scanned_pdf_is_retried_once_with_ocr(store, caplog_loguru):
+    book, parser = _book(), FakeParser([{"text": " "}], _chunks(3))
+    _ingestion(book, store, parser).enqueue(book["id"])
+    assert parser.calls == [False, True]
+    assert book["ingestion_status"] == "indexed" and book["chunk_count"] == 3 and store.count(book["id"]) == 3
+    assert any("no text without OCR, retrying with OCR" in m for m in caplog_loguru)
+
+
+def test_ocr_also_empty_fails_with_the_no_text_message(store, caplog_loguru):
+    book, parser = _book(), FakeParser([], [{"text": "  "}])
+    _ingestion(book, store, parser).enqueue(book["id"])
+    assert parser.calls == [False, True]
+    assert book["ingestion_status"] == "failed" and book["ingestion_error"] == NO_TEXT_WITH_OCR_MESSAGE
+    assert book["ingestion_error"].startswith("No text could be extracted")
+    assert any("OCR also found no text" in m for m in caplog_loguru)
+
+
+def test_no_ocr_retry_when_fallback_disabled_or_ocr_already_on(store, settings, monkeypatch):
+    monkeypatch.setattr(settings, "DOCLING_OCR_FALLBACK", False)
+    book, parser = _book(), FakeParser([], _chunks(3))
+    _ingestion(book, store, parser).enqueue(book["id"])
+    assert parser.calls == [False] and book["ingestion_error"] == NO_TEXT_MESSAGE
+
+    monkeypatch.setattr(settings, "DOCLING_OCR_FALLBACK", True)
+    monkeypatch.setattr(settings, "DOCLING_DO_OCR", True)
+    book, parser = _book(), FakeParser([], _chunks(3))
+    _ingestion(book, store, parser).enqueue(book["id"])
+    assert parser.calls == [False] and book["ingestion_error"] == NO_TEXT_WITH_OCR_MESSAGE

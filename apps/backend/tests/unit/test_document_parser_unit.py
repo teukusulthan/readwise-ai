@@ -22,7 +22,7 @@ def test_windowed_parsing_covers_all_pages_and_carries_headings(monkeypatch):
 
     windows = []
 
-    def fake_convert(path, page_range=None):
+    def fake_convert(path, page_range=None, ocr=False):
         windows.append(page_range)
         return page_range
 
@@ -71,6 +71,66 @@ def test_converter_uses_configured_threads_and_layout_batch_size(monkeypatch):
     (fmt,) = captured["format_options"].values()
     assert fmt.pipeline_options.layout_batch_size == 2
     assert fmt.pipeline_options.accelerator_options.num_threads == 6
+
+
+def test_ocr_converter_is_cached_separately_with_ocr_on_and_the_same_speed_settings(monkeypatch):
+    from docling import document_converter
+
+    from config.base import settings
+    from util import document_parser
+
+    built = []
+    monkeypatch.setattr(document_converter, "DocumentConverter", lambda **kw: built.append(kw) or object())
+    monkeypatch.setattr(settings, "DOCLING_DO_OCR", False)
+    monkeypatch.setattr(settings, "DOCLING_NUM_THREADS", 6)
+    monkeypatch.setattr(settings, "DOCLING_LAYOUT_BATCH_SIZE", 2)
+    document_parser._converter.cache_clear()
+    document_parser._ocr_converter.cache_clear()
+    try:
+        plain, ocr = document_parser._converter(), document_parser._ocr_converter()
+        assert plain is not ocr and document_parser._ocr_converter() is ocr  # built once, kept apart
+    finally:
+        document_parser._converter.cache_clear()
+        document_parser._ocr_converter.cache_clear()
+
+    (plain_fmt,), (ocr_fmt,) = (kw["format_options"].values() for kw in built)
+    assert plain_fmt.pipeline_options.do_ocr is False and ocr_fmt.pipeline_options.do_ocr is True
+    assert ocr_fmt.pipeline_options.layout_batch_size == 2
+    assert ocr_fmt.pipeline_options.accelerator_options.num_threads == 6
+
+
+def test_convert_uses_the_ocr_converter_only_when_asked(monkeypatch):
+    from types import SimpleNamespace
+
+    import util.document_parser as parser
+
+    def converter(name):
+        return SimpleNamespace(convert=lambda path, **kw: SimpleNamespace(document=name))
+
+    monkeypatch.setattr(parser, "_converter", lambda: converter("plain"))
+    monkeypatch.setattr(parser, "_ocr_converter", lambda: converter("ocr"))
+    assert parser.convert("book.pdf", page_range=(1, 2)) == "plain"
+    assert parser.convert("book.pdf", page_range=(1, 2), ocr=True) == "ocr"
+
+
+def test_parse_pdf_passes_the_ocr_flag_to_every_window(monkeypatch):
+    import util.document_parser as parser
+
+    flags = []
+    monkeypatch.setattr(parser, "count_pages", lambda path: 3)
+    monkeypatch.setattr(parser, "convert", lambda path, page_range=None, ocr=False: flags.append(ocr))
+    monkeypatch.setattr(parser, "chunk_document", lambda document: iter(()))
+    monkeypatch.setattr(parser.settings, "DOCLING_PAGE_WINDOW", 2)
+    list(parser.parse_pdf("book.pdf", ocr=True)[1])
+    list(parser.parse_pdf("book.pdf")[1])
+    assert flags == [True, True, False, False]
+
+
+def test_self_healing_defaults():
+    from config.base import BaseSetting
+
+    assert BaseSetting.__fields__["INGESTION_MAX_ATTEMPTS"].default == 3
+    assert BaseSetting.__fields__["DOCLING_OCR_FALLBACK"].default is True
 
 
 def test_docling_speed_defaults():

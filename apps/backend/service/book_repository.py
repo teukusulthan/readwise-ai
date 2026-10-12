@@ -18,13 +18,14 @@ from service import Services
 INGESTION_STATUSES = ("none", "queued", "processing", "indexed", "failed")
 # While a book is in one of these, the ingestion worker owns its document and vectors.
 BUSY_STATUSES = ("queued", "processing")
+INTERRUPTED_MESSAGE = "Ingestion was interrupted (server restart). Retry with reindex."
 
 # Columns callers may set through insert()/update().
 WRITABLE_COLUMNS = {
     "title", "authors", "description", "isbn", "cover_url", "publisher", "published_year",
     "language", "subjects", "metadata_source", "external_id",
     "file_name", "file_path", "file_sha256", "file_size_bytes", "page_count",
-    "ingestion_status", "ingestion_error", "chunk_count", "embedding_model", "indexed_at",
+    "ingestion_status", "ingestion_error", "ingestion_attempts", "chunk_count", "embedding_model", "indexed_at",
 }
 
 SORTABLE_COLUMNS = {"createdAt": "created_at", "updatedAt": "updated_at", "title": "title",
@@ -175,15 +176,44 @@ class BookRepository:
         with self.pool.connection() as conn:
             return conn.execute("SELECT count(*) AS n FROM books WHERE ingestion_status = 'queued'").fetchone()["n"]
 
-    def fail_interrupted(self) -> int:
-        """Mark jobs left `queued`/`processing` by a previous process as failed (they died with it)."""
+    def claim_queued(self, book_id) -> Optional[dict]:
+        """
+        The worker's claim: `queued` -> `processing` and ingestion_attempts + 1, in one statement, so a
+        job runs once. Returns the claimed row, or None if the book is not queued (gone or claimed).
+        """
         with self.pool.connection() as conn:
-            cursor = conn.execute(
-                "UPDATE books SET ingestion_status = 'failed', "
-                "ingestion_error = 'Ingestion was interrupted (server restart). Retry with reindex.', "
-                "updated_at = now() WHERE ingestion_status IN ('queued', 'processing')"
-            )
-            return cursor.rowcount
+            return conn.execute(
+                "UPDATE books SET ingestion_status = 'processing', ingestion_attempts = ingestion_attempts + 1, "
+                "updated_at = now() WHERE id = %s AND ingestion_status = 'queued' RETURNING *",
+                (parse_book_id(book_id),),
+            ).fetchone()
+
+    def recover_interrupted(self, max_attempts: int) -> tuple[list, int]:
+        """
+        Jobs left `queued`/`processing` by a previous process (they died with it), in one statement:
+        claimed fewer than `max_attempts` times -> `queued` again; at or over the cap -> `failed`.
+        Returns (ids to enqueue, number marked failed); the ids list the interrupted `processing` job
+        first, then the waiting books in the order they were queued.
+        """
+        with self.pool.connection() as conn:
+            rows = conn.execute(
+                """
+                WITH interrupted AS (
+                    SELECT id, ingestion_status AS was_status, updated_at AS since
+                    FROM books WHERE ingestion_status = ANY(%(busy)s) FOR UPDATE
+                )
+                UPDATE books b SET
+                    ingestion_status = CASE WHEN b.ingestion_attempts < %(max)s THEN 'queued' ELSE 'failed' END,
+                    ingestion_error = CASE WHEN b.ingestion_attempts < %(max)s THEN NULL ELSE %(message)s END,
+                    updated_at = now()
+                FROM interrupted i WHERE b.id = i.id
+                RETURNING b.id, b.ingestion_status, i.was_status, i.since
+                """,
+                {"busy": list(BUSY_STATUSES), "max": max_attempts, "message": INTERRUPTED_MESSAGE},
+            ).fetchall()
+        requeued = sorted((r for r in rows if r["ingestion_status"] == "queued"),
+                          key=lambda r: (r["was_status"] != "processing", r["since"], str(r["id"])))
+        return [r["id"] for r in requeued], sum(1 for r in rows if r["ingestion_status"] == "failed")
 
     def delete_if_idle(self, book_id) -> Optional[dict]:
         """
