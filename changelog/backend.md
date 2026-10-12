@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-12 · Serve the stored PDF: `GET /book/file` (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/router/book.py`, `apps/backend/service/book.py`, tests `tests/unit/test_book_file.py`, `tests/integration/test_book_api.py`, `docs/api-spec.md`
+> `GET /book/file?id=` streams the book's PDF inline (`FileResponse`, `application/pdf`, `Content-Disposition: inline` with a sanitised ASCII `filename` plus RFC 5987 `filename*` for other characters; falls back to `<title>.pdf`). The path is derived from the book's UUID via `util/storage.py`, never from input; 404 when the book has no document or the file is gone. Same auth as the other book routes (the JWT dependency also accepts the `token` cookie).
+
 ### 2026-10-12 · Parse PDFs in a child process (no sprint) · ✅ Done
 
 **Event:** Files modified

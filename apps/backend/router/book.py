@@ -1,7 +1,9 @@
 import os
 from time import time
 from typing import Optional
+from urllib.parse import quote
 
+from fastapi.responses import FileResponse
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from middleware.route_limits import route_limit
 
@@ -14,6 +16,16 @@ from util.helper import get_execution_time, is_include_schema, router_param_buil
 from util.http_errors import to_http_exception
 
 obj = Book()
+
+
+def inline_disposition(name: str) -> str:
+    """`inline` Content-Disposition: quoted ASCII fallback plus RFC 5987 `filename*` for other characters."""
+    clean = "".join(ch for ch in name if ch.isprintable() and ch not in '"\\/;').strip() or "document.pdf"
+    ascii_name = clean.encode("ascii", "replace").decode().replace("?", "_")
+    header = f'inline; filename="{ascii_name}"'
+    if ascii_name != clean:
+        header += f"; filename*=UTF-8''{quote(clean)}"
+    return header
 
 tag = os.path.splitext(os.path.basename(os.path.abspath(__file__)))[0]
 router = APIRouter(**router_param_builder(tag))
@@ -61,6 +73,17 @@ def get_by_id(id: str):
     start_time = time()
     try:
         return _ok(obj.get_by_id(id), start_time)
+    except Exception as error:
+        raise to_http_exception(error, start_time)
+
+
+@router.get("/file", include_in_schema=is_include_schema(tag, "file"))
+def file(id: str):
+    """Stream the stored PDF inline (open with `#page=N` to jump to a page). 404 when the book or its file is missing."""
+    start_time = time()
+    try:
+        path, name = obj.get_document(id)
+        return FileResponse(path, media_type="application/pdf", headers={"Content-Disposition": inline_disposition(name)})
     except Exception as error:
         raise to_http_exception(error, start_time)
 

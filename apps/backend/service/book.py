@@ -80,6 +80,14 @@ class Book:
             storage.discard(row["file_path"])
         return {"id": str(row["id"]), "deleted": True}
 
+    def get_document(self, book_id) -> tuple[Path, str]:
+        """The stored PDF and the name to offer for it. The path is derived from the book's UUID, never from input."""
+        row = self._get_row(book_id)
+        path = storage.book_file_path(row["id"])
+        if not row["file_sha256"] or not path.is_file():
+            raise NotFoundError(f"Book {book_id} has no document.")
+        return path, row["file_name"] or f"{row['title']}.pdf"
+
     # ── Open Library import ───────────────────────────────────────────
 
     def lookup_external(self, query: str) -> list[dict]:

@@ -195,3 +195,22 @@ async def test_worker_removes_points_of_a_book_deleted_while_indexing(client, mo
     book_id = response.json()["data"]["id"]
     assert BookRepository().get(book_id) is None
     assert book_router.obj.vector_store.count(book_id) == 0
+
+
+async def test_file_streams_the_stored_pdf_inline_and_404s_when_missing(client):
+    content = SAMPLE.read_bytes()
+    book = (await _upload(client, title="Saltmere", content=content)).json()["data"]
+
+    response = await client.get("/book/file", params={"id": book["id"]})
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"] == 'inline; filename="saltmere.pdf"'
+    assert response.content == content
+
+    no_document = (await client.post("/book/add", json={"title": "Dune"})).json()["data"]
+    assert (await client.get("/book/file", params={"id": no_document["id"]})).status_code == 404
+    assert (await client.get("/book/file", params={"id": "00000000-0000-0000-0000-000000000000"})).status_code == 404
+    assert (await client.get("/book/file", params={"id": "../../etc/passwd"})).status_code == 400
+
+    Path(BookRepository().get(book["id"])["file_path"]).unlink()
+    assert (await client.get("/book/file", params={"id": book["id"]})).status_code == 404
