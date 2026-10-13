@@ -3,7 +3,7 @@
 #   docker build -t readwise-web apps/web
 
 # ---- build -----------------------------------------------------------------
-FROM node:20-bookworm-slim AS build
+FROM node:22.23.2-bookworm-slim AS build
 WORKDIR /app
 
 # patch-package runs as the postinstall hook, so patches/ must exist before `npm ci`.
@@ -26,7 +26,7 @@ COPY . .
 RUN npx vite build
 
 # ---- runtime: unprivileged nginx (listens on 8080, runs as user nginx) -------
-FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
+FROM nginxinc/nginx-unprivileged:1.27.5-alpine AS runtime
 
 # Runtime settings, substituted into the template by the image's envsubst step:
 #   BACKEND_UPSTREAM        where /api/v1/apps/ is proxied (prefix stripped, like the Vite dev proxy)
