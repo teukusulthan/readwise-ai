@@ -76,6 +76,10 @@ class BaseSetting(BaseSettings):
     # /auth/register: true (default) = the boilerplate flow (MX + Proofy check, OTP mail over SMTP, then
     # /auth/verification). false = development only: the account is created at once, no mail is sent.
     AUTH_EMAIL_VERIFICATION: bool = Field(default=True)
+    # `Secure` flag of the auth cookies (`token`, `refresh_token`). true (default) = sent over HTTPS only (browsers
+    # also accept them from http://localhost). false = development only, for plain-HTTP access from another host
+    # (e.g. http://<LAN IP>:3000), where browsers drop Secure cookies and login cannot stick.
+    AUTH_COOKIE_SECURE: bool = Field(default=True)
 
     BASE_RESPONSE_CASE: str
 

@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Login explains a rejected session cookie (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/web/src/features/auth/hooks/useLogin.ts`, `apps/web/src/services/auth.service.ts`, `apps/web/src/features/auth/components/LoginForm.test.tsx`
+> After `/auth/login` the form calls `GET /auth/validate`; a 401 means the browser dropped the HttpOnly cookies (Secure cookies over plain HTTP), so the form shows "…the browser rejected the session cookie. Use HTTPS, or set BE_AUTH_COOKIE_SECURE=false for local development." instead of signing in and bouncing back to /login.
+
 ### 2026-10-12 · Login, register and sign-out behind `VITE_AUTH_ENABLED` (no sprint) · ✅ Done
 
 **Event:** Files modified

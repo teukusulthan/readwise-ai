@@ -24,6 +24,19 @@ obj = Auth()
 tag = os.path.splitext(os.path.basename(os.path.abspath(__file__)))[0]
 router = APIRouter(**router_param_builder(tag, jwt=False))
 
+def set_auth_cookies(response: Response, token: str, refresh_token: str):
+    """HttpOnly session cookies. `Secure` follows BE_AUTH_COOKIE_SECURE (false only for plain-HTTP development)."""
+    options = {"httponly": True, "secure": settings.AUTH_COOKIE_SECURE, "samesite": "lax"}
+    response.set_cookie(key="token", value=token, max_age=settings.JWT_EXPIRED, **options)
+    response.set_cookie(key="refresh_token", value=refresh_token, max_age=settings.JWT_REFRESH, **options)
+
+
+def delete_auth_cookies(response: Response):
+    options = {"httponly": True, "secure": settings.AUTH_COOKIE_SECURE, "samesite": "lax"}
+    response.delete_cookie("refresh_token", **options)
+    response.delete_cookie("token", **options)
+
+
 _FORBIDDEN_MESSAGES = [
     "User doesn't have login access",
     "Account has been expired",
@@ -104,8 +117,7 @@ def login(dto: AuthDTO, response: Response):
     try:
         data = obj.login(dto)
         auth = data.pop("auth")
-        response.set_cookie(key="token",value=auth.get("token"),httponly=True,secure=True,samesite="lax",max_age=settings.JWT_EXPIRED)
-        response.set_cookie(key="refresh_token",value=auth.get("refresh_token"),httponly=True,secure=True,samesite="lax",max_age=settings.JWT_REFRESH)
+        set_auth_cookies(response, auth.get("token"), auth.get("refresh_token"))
 
         return BaseResponse(
             data=data,
@@ -140,8 +152,7 @@ def logout(request: Request, response: Response):
         # The access cookie may already have expired (only the refresh cookie is required): still log out.
         token = request.headers.get("Authorization") or request.cookies.get("token") or ""
         data = obj.logout(token)
-        response.delete_cookie("refresh_token")
-        response.delete_cookie("token")
+        delete_auth_cookies(response)
         return BaseResponse(
             data=data,
             metaData=MetadataSuccess(executionTime=get_execution_time(start_time)),
@@ -198,8 +209,7 @@ def refresh(request: Request, response: Response):
                 request.query_params.get("user_id", None),
                 request.query_params.get("permission_id", None),
             )
-        response.set_cookie(key="token",value=data.get("token"),httponly=True,secure=True,samesite="lax",max_age=settings.JWT_EXPIRED)
-        response.set_cookie(key="refresh_token",value=data.get("refresh_token"),httponly=True,secure=True,samesite="lax",max_age=settings.JWT_EXPIRED)
+        set_auth_cookies(response, data.get("token"), data.get("refresh_token"))
         
         return BaseResponse(
             data="Refresh Success",

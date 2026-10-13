@@ -31,8 +31,8 @@ Authorization: Bearer <token>
 | `User` | `JWTBearer` that must be a user: the service principal gets `403` (personal data: conversations, chat sessions) |
 
 > Tokens are also stored in HttpOnly cookies (`token`, `refresh_token`) as a fallback. `POST /auth/login` returns
-> only `{ user: {id, fullname, username, email, …} }` in the body; the tokens are set as `Secure`, `HttpOnly`,
-> `SameSite=Lax` cookies. `GET /auth/refresh` (refresh cookie) issues new ones; `DELETE /auth/logout` clears both
+> only `{ user: {id, fullname, username, email, …} }` in the body; the tokens are set as `HttpOnly`, `SameSite=Lax`
+> cookies, `Secure` unless `BE_AUTH_COOKIE_SECURE=false` (development over plain HTTP only). `GET /auth/refresh` (refresh cookie) issues new ones; `DELETE /auth/logout` clears both
 > (it needs only the refresh cookie).
 
 Auth is **opt-in**: with `BE_JWT_ACTIVE=false` no endpoint checks credentials and every caller is the owner `"local"`.

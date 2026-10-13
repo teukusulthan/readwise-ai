@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Auth cookies: `BE_AUTH_COOKIE_SECURE` (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/router/auth.py`, `apps/backend/config/base.py`, `apps/backend/.env.example`, `apps/backend/tests/unit/test_auth_cookies.py`, `apps/backend/tests/integration/test_accounts.py`, `docs/architecture.md`, `docs/api-spec.md`
+> The `token` / `refresh_token` cookies are set and deleted by one helper whose `Secure` flag follows `BE_AUTH_COOKIE_SECURE` (default true; false = development over plain HTTP from a LAN address, where browsers drop Secure cookies and login never stuck). The refresh cookie set by `/auth/refresh` now lives `BE_JWT_REFRESH` seconds like the one from login (it used `BE_JWT_EXPIRED`).
+
 ### 2026-10-12 · Accounts: per-user conversations, service token (no sprint) · ✅ Done
 
 **Event:** Files modified

@@ -32,6 +32,9 @@ export const authService = {
 
   validate: () => apiRequests.get<User>(API_ENDPOINTS.AUTH.VALIDATE, { full_response: true }),
 
+  /** 200 when the browser sends the refresh cookie back (i.e. the session cookies were stored). */
+  checkSession: () => apiRequests.get<{ status: string }>(API_ENDPOINTS.AUTH.VALIDATE),
+
   forgotPassword: (data: ForgotPasswordPayload) =>
     apiRequests.post<null, ForgotPasswordPayload>(API_ENDPOINTS.AUTH.FORGOT_PASSWORD_REQUEST, data),
 

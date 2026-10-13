@@ -133,10 +133,22 @@ async def test_register_without_verification_then_login_owns_conversations(app, 
         user = login.json()["data"]["user"]
         assert user["id"] == stored["_id"] and user["email"] == "ada@accounts.test"
         assert "token" not in login.json()["data"]                                            # cookies only
+        assert all("secure" in h.lower() for h in login.headers.get_list("set-cookie"))      # default: Secure
         token = login.cookies["token"]
 
+        # Plain-HTTP development (BE_AUTH_COOKIE_SECURE=false): the same cookies without `Secure`.
+        monkeypatch.setattr(settings, "AUTH_COOKIE_SECURE", False)
+        insecure = await client.post("/auth/login", json={"email": "ada", "password": account["password"]})
+        assert insecure.status_code == 200
+        assert not any("secure" in h.lower() for h in insecure.headers.get_list("set-cookie"))
+        monkeypatch.setattr(settings, "AUTH_COOKIE_SECURE", True)
+
+        # The web's post-login check (GET /auth/validate): 401 when the browser did not keep the cookies.
+        client.cookies.clear()
+        assert (await client.get("/auth/validate")).status_code == 401
         # The web client's 401 path: /auth/refresh with the refresh cookie mints a new access cookie.
         client.cookies.set("refresh_token", login.cookies["refresh_token"])
+        assert (await client.get("/auth/validate")).json()["data"] == {"status": "active"}
         refreshed = await client.get("/auth/refresh")
         assert refreshed.status_code == 200 and refreshed.cookies.get("token")
 

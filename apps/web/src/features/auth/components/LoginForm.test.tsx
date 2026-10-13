@@ -8,7 +8,7 @@ import { authService } from '@/services/auth.service'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { LoginForm } from './LoginForm'
 
-vi.mock('@/services/auth.service', () => ({ authService: { login: vi.fn() } }))
+vi.mock('@/services/auth.service', () => ({ authService: { login: vi.fn(), checkSession: vi.fn() } }))
 
 const user = { id: 'u1', username: 'ada', fullname: 'Ada Reader', email: 'ada@example.test' }
 
@@ -38,7 +38,10 @@ function fillAndSubmit(email: string, password: string) {
 }
 
 describe('LoginForm', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(authService.checkSession).mockResolvedValue({ data: { status: 'active' } } as never)
+  })
   afterEach(() => useAuthStore.getState().clearAuth())
 
   it('signs in, stores the user, drops cached data and returns to the requested page', async () => {
@@ -73,5 +76,18 @@ describe('LoginForm', () => {
     fillAndSubmit('ada', 'wrong')
     expect(await screen.findByRole('alert')).toHaveTextContent('Incorrect email or password')
     await waitFor(() => expect(useAuthStore.getState().isAuthenticated).toBe(false))
+  })
+
+  it('explains a rejected session cookie instead of bouncing back to the login page', async () => {
+    vi.mocked(authService.login).mockResolvedValue({ data: { user } } as never)
+    vi.mocked(authService.checkSession).mockRejectedValue(new ApiError('Authentication required.', { response: { status: 401 } as never }))
+    const { router } = renderForm()
+
+    fillAndSubmit('ada', 'correct horse')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('the browser rejected the session cookie')
+    expect(screen.getByRole('alert')).toHaveTextContent('BE_AUTH_COOKIE_SECURE=false')
+    expect(useAuthStore.getState().isAuthenticated).toBe(false)
+    expect(router.state.location.pathname).toBe('/login')
   })
 })
