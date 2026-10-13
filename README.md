@@ -35,7 +35,7 @@ library-rag/
 ├── apps/
 │   ├── backend/      # FastAPI API (api.py entry, uv-managed)
 │   ├── web/          # React + Vite web app
-│   └── mcp/          # FastMCP servers (added as the project progresses)
+│   └── mcp/library/  # FastMCP server exposing the library to agents (stdio / HTTP)
 ├── docs/             # API spec + database schema registries
 ├── sprint/           # Sprint planning (sprint-builder)
 ├── brief/            # Project brief (brief-builder) — optional
@@ -67,7 +67,14 @@ npm install
 npm run dev
 ```
 
-Tests: `uv run pytest` (backend), `npm test` (web).
+Tests: `uv run pytest` (backend, and in `apps/mcp/library`), `npm test` (web).
+
+**MCP server (optional)** — lets agents search and question the library (read-only tools over the backend REST API):
+
+```bash
+cd apps/mcp/library
+uv sync && uv run python server.py      # stdio; HTTP + bearer token: see apps/mcp/library/README.md
+```
 
 | Service | Default URL |
 |---------|-------------|

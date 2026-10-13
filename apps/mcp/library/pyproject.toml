@@ -1,0 +1,22 @@
+[project]
+name = "library-mcp"
+version = "0.1.0"
+description = "Read-only MCP server exposing the Readwise AI book library"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=4.1.0",
+    "httpx>=0.28.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "respx>=0.23.1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]

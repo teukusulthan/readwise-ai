@@ -25,7 +25,8 @@ Every book has an `ingestion_status`. **Only `indexed` books are searched or use
 library-rag/
 ├── apps/
 │   ├── backend/          FastAPI service (Python 3.12, uv)
-│   └── web/              React 18 + TypeScript + Vite
+│   ├── web/              React 18 + TypeScript + Vite
+│   └── mcp/library/      FastMCP server over the backend REST API (stdio / HTTP)
 ├── docker-compose.yml    PostgreSQL (pgvector image), Qdrant, MongoDB, Redis — 127.0.0.1 only
 ├── docs/                 this file, api-spec.md, database-schema.md
 └── .claude/              agent rules + skills (guidelines)
@@ -260,6 +261,20 @@ deleted book's points are never returned; the worker drops points of a book dele
 
 ---
 
+### 4.8 MCP server (`apps/mcp/library/`)
+
+```
+MCP client ──stdio──────────────► server.py (FastMCP) ──HTTP + X-Internal-Token──► backend REST API
+           ──http /mcp + Bearer──►   list_books  → POST /book/get-all
+                                     get_book    → GET  /book/get-one
+                                     search_passages → POST /search/query
+                                     ask_library → POST /chat/ask   (non-streaming, stateless)
+```
+
+Read-only tools; the server never connects to Postgres, Qdrant or storage, so the backend's access rules (service principal §4.7, rate limits, indexed-only search) apply unchanged. Outbound auth: `LIBRARY_INTERNAL_TOKEN` is sent as `X-Internal-Token` (= `BE_INTERNAL_TOKEN`); with `BE_JWT_ACTIVE=false` it can stay empty. Inbound auth: stdio needs none (the client spawns the process); the HTTP transport refuses to start without `MCP_BEARER_TOKEN` (>= 32 chars) and a FastMCP `TokenVerifier` accepts exactly that token (`hmac.compare_digest`), others get 401. Backend failures become tool errors (unreachable, 401/403 credentials, 404, 429 with `Retry-After`, 503). Outputs are trimmed typed models, not backend envelopes (passages cut at 1500 chars, source snippets at 600). Setup and config: `apps/mcp/library/README.md`.
+
+---
+
 ## 5. Where the code lives
 
 ### Backend (`apps/backend/`)
@@ -357,7 +372,7 @@ deleted book's points are never returned; the worker drops points of a book dele
 - **Accounts are opt-in**: local `.env` runs with `BE_JWT_ACTIVE=false` and the web with `VITE_AUTH_ENABLED=false` (no login, owner "local"). Turn both on together (§4.7). The auth cookies are `Secure` (`BE_AUTH_COOKIE_SECURE=true`): browsers accept them on `http://localhost`, but over plain HTTP from another host (e.g. `http://<LAN IP>:3000`) they are dropped — use HTTPS, or `BE_AUTH_COOKIE_SECURE=false` in development only. After login the web calls `GET /auth/validate` and says so if the cookie did not stick.
 - **One shared library** — books have no owner; only conversations are per user. No roles: every signed-in user can add, edit and delete books.
 - Registration with the default email verification needs working SMTP and a Proofy key; without them use `BE_AUTH_EMAIL_VERIFICATION=false` in development only.
-- 🛠 Not yet: MCP server, Docker images for the apps, S3 storage.
+- 🛠 Not yet: Docker images for the apps, S3 storage.
 
 ---
 
