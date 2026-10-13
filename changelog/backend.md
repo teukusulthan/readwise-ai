@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Proxy trust in compose, longer MCP ask timeout (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `docker-compose.yml`, `apps/mcp/library/server.py`, `apps/mcp/library/.env.example`, `apps/mcp/library/README.md`, `apps/mcp/library/tests/test_auth.py`, `README.md`, `docs/architecture.md`
+> Compose puts web and backend on an `edge` network with a fixed subnet (`EDGE_SUBNET`, default `172.29.250.0/28`) and sets `BE_TRUSTED_PROXIES` to it, so per-route rate limits see browser IPs. The MCP's default `LIBRARY_TIMEOUT_SECONDS` is 420 (was 120, equal to one backend LLM attempt; the backend may retry twice, 360 s worst case).
+
 ### 2026-10-13 · Book delete survives a vector store outage (no sprint) · ✅ Done
 
 **Event:** Files modified

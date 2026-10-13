@@ -21,7 +21,7 @@ Copy `.env.example`; values are read from the process environment.
 |----------|---------|-------|
 | `LIBRARY_API_URL` | `http://localhost:8020` | Backend base URL |
 | `LIBRARY_INTERNAL_TOKEN` | empty | Sent as `X-Internal-Token`; must equal the backend's `BE_INTERNAL_TOKEN`. Empty only works when the backend runs with `BE_JWT_ACTIVE=false` |
-| `LIBRARY_TIMEOUT_SECONDS` | `120` | `ask_library` waits for a full LLM answer |
+| `LIBRARY_TIMEOUT_SECONDS` | `420` | `ask_library` waits for a full LLM answer: keep it above the backend's worst case, `BE_LLM_TIMEOUT_SECONDS` × (1 + `BE_LLM_NUM_RETRIES`) = 120 × 3 = 360 s plus retrieval |
 | `MCP_BEARER_TOKEN` | none | **Required for HTTP**, at least 32 characters (`openssl rand -hex 32`) |
 | `MCP_HOST` / `MCP_PORT` | `127.0.0.1` / `8030` | HTTP bind address |
 

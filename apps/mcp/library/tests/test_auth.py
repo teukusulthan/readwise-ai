@@ -53,3 +53,10 @@ async def test_http_endpoint_accepts_the_right_token():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://mcp.test") as http:
             response = await http.post("/mcp", json=INIT, headers={**HEADERS, "Authorization": f"Bearer {TOKEN}"})
     assert response.status_code == 200
+
+
+def test_default_timeout_outlasts_the_backend_llm_retries():
+    # Backend worst case for /chat/ask: BE_LLM_TIMEOUT_SECONDS (120) x (1 + BE_LLM_NUM_RETRIES (2)) = 360 s.
+    assert Settings().timeout_seconds > 120 * 3
+    assert Settings.from_env({}).timeout_seconds == Settings().timeout_seconds
+    assert Settings.from_env({"LIBRARY_TIMEOUT_SECONDS": "90"}).timeout_seconds == 90

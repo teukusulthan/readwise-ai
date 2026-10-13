@@ -37,10 +37,16 @@ ANSWER_CAP = 12000
 # ---------------------------------------------------------------- configuration
 
 
+# Longer than the backend's worst case for POST /chat/ask: BE_LLM_TIMEOUT_SECONDS (120) per attempt x
+# (1 + BE_LLM_NUM_RETRIES (2)) = 360 s, plus retrieval. Equal to it, the MCP gave up just as the backend
+# was still retrying and the answer was lost. Matches nginx's /api/v1/apps/chat/ask read timeout.
+DEFAULT_TIMEOUT_SECONDS = 420.0
+
+
 class Settings(BaseModel):
     api_url: str = "http://localhost:8020"
     internal_token: str = ""
-    timeout_seconds: float = 120.0
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     bearer_token: str = ""
     host: str = "127.0.0.1"
     port: int = 8030

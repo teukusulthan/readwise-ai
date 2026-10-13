@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · nginx: CDN resolved per request, longer /chat/ask timeout (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/web/docker/15-cdn-assets.sh`, `apps/web/docker/default.conf.template`, `apps/web/Dockerfile`
+> `/cdn-assets/` uses a `resolver` (127.0.0.11, `ICON_CDN_RESOLVER` to override) and a variable `proxy_pass`, so nginx starts even when the CDN host does not resolve at boot. `/api/v1/apps/chat/ask` has its own location with a 420 s read timeout (the generic API location keeps 300 s; the SSE location is unchanged).
+
 ### 2026-10-13 · Batch upload waits out rate limits (no sprint) · ✅ Done
 
 **Event:** Files modified
