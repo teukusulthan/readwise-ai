@@ -3,8 +3,11 @@
 #   docker compose up -d          # start postgres, qdrant, mongo, redis
 #   docker compose ps             # all services should become "healthy"
 #
-# Ports bind to 127.0.0.1 only. Postgres/Redis default to host ports 5433/6380 to avoid
+# Ports bind to 127.0.0.1 by default. Postgres/Redis default to host ports 5433/6380 to avoid
 # clashing with locally installed instances; override with POSTGRES_PORT / REDIS_PORT.
+# PUBLIC_BIND_ADDRESS (default 127.0.0.1) moves the web, backend, mcp and Qdrant HTTP ports (dashboard
+# at /dashboard) onto another interface, e.g. the server's LAN IP; set QDRANT_API_KEY before doing so.
+# Postgres, Mongo, Redis and Qdrant gRPC always stay on 127.0.0.1.
 # Credentials default to local-dev values and can be overridden from the shell or a
 # root .env (never commit real secrets).
 #
@@ -43,7 +46,7 @@ services:
       # Empty = no auth (local only). Set QDRANT_API_KEY and BE_QDRANT_API_KEY together outside local dev.
       QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
     ports:
-      - "127.0.0.1:${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${PUBLIC_BIND_ADDRESS:-127.0.0.1}:${QDRANT_HTTP_PORT:-6333}:6333"
       - "127.0.0.1:${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant-data:/qdrant/storage
@@ -107,7 +110,7 @@ services:
       BE_TRUSTED_PROXIES: ${EDGE_SUBNET:-172.29.250.0/28}
     networks: [default, edge]
     ports:
-      - "127.0.0.1:${BACKEND_PORT:-8020}:8020"
+      - "${PUBLIC_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8020}:8020"
     volumes:
       - book-storage:/app/storage
       - hf-cache:/home/app/.cache/huggingface
@@ -141,7 +144,7 @@ services:
     # Only on `edge` (no database access): its requests to the backend come from that subnet.
     networks: [edge]
     ports:
-      - "127.0.0.1:${WEB_PORT:-3000}:8080"
+      - "${PUBLIC_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:8080"
     depends_on:
       backend: {condition: service_healthy}
     healthcheck:
@@ -166,7 +169,7 @@ services:
       MCP_HOST: 0.0.0.0
       MCP_PORT: "8030"
     ports:
-      - "127.0.0.1:${MCP_PORT:-8030}:8030"
+      - "${PUBLIC_BIND_ADDRESS:-127.0.0.1}:${MCP_PORT:-8030}:8030"
     depends_on:
       backend: {condition: service_healthy}
     healthcheck:

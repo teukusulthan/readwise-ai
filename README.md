@@ -126,7 +126,7 @@ docker compose --profile app ps                           # backend, web, mcp sh
 - Volumes: `book-storage` (uploaded PDFs) and `hf-cache` (tokenizer and Docling models, downloaded on the first parse) survive rebuilds.
 - `VITE_API_BASE_URL` and `VITE_AUTH_ENABLED` are compiled into the web bundle: set them in the shell or a root `.env` (compose reads that, not `apps/web/env/.env`) and rebuild. Accounts are off by default (`BE_JWT_ACTIVE=false` in `apps/backend/.env.example`, `VITE_AUTH_ENABLED=false`); turn `VITE_AUTH_ENABLED=true` on together with `BE_JWT_ACTIVE=true` and a `BE_JWT_SECRET` of at least 32 characters (the backend refuses to start otherwise).
 - The backend `.env` is not copied into the image (`.dockerignore`); it is passed as environment variables. The embedding service host (`BE_ENGINE_EMBEDDING_BASE_URL`) must be reachable from the container.
-- Ports bind to 127.0.0.1. Put TLS in front before exposing them.
+- Ports bind to 127.0.0.1. To reach web, backend, mcp and the Qdrant dashboard (`http://<host>:6333/dashboard`) from other machines, set `PUBLIC_BIND_ADDRESS` (e.g. `0.0.0.0` or the server's LAN IP) in the root `.env`, together with `QDRANT_API_KEY` (the dashboard asks for it). Postgres, Mongo, Redis and Qdrant gRPC always stay on 127.0.0.1. Put TLS in front before exposing them beyond a trusted network.
 
 ---
 
