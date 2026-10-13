@@ -76,6 +76,9 @@ describe('LoginForm', () => {
     fillAndSubmit('ada', 'wrong')
     expect(await screen.findByRole('alert')).toHaveTextContent('Incorrect email or password')
     await waitFor(() => expect(useAuthStore.getState().isAuthenticated).toBe(false))
+    // The rejected password is cleared; the identifier stays for the next try.
+    expect(screen.getByLabelText('Password')).toHaveValue('')
+    expect(screen.getByLabelText('Email or username')).toHaveValue('ada')
   })
 
   it('explains a rejected session cookie instead of bouncing back to the login page', async () => {

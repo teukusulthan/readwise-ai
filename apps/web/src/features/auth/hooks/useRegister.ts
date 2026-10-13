@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 
-import type { IRegisterPayload } from '@/features/auth/types/auth.types'
+import type { IRegisterPayload, IVerifyRegistrationPayload } from '@/features/auth/types/auth.types'
 import { authService } from '@/services/auth.service'
 
 export function useRegister() {
@@ -12,6 +12,6 @@ export function useRegister() {
 /** Confirms a registration with the emailed code (only when the backend verifies emails). */
 export function useVerifyRegistration() {
   return useMutation({
-    mutationFn: (otp: string) => authService.verifyRegistration(otp).then((res) => res.data),
+    mutationFn: (payload: IVerifyRegistrationPayload) => authService.verifyRegistration(payload).then((res) => res.data),
   })
 }

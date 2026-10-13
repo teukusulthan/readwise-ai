@@ -11,7 +11,20 @@ describe('auth redirects', () => {
 
   it('only returns to paths inside the app', () => {
     expect(safeNextPath('/search?q=whales')).toBe('/search?q=whales')
-    for (const unsafe of [null, '', 'https://evil.test', '//evil.test', '/\\evil.test', 'books', '/login']) {
+    for (const unsafe of [
+      null,
+      '',
+      'https://evil.test',
+      '//evil.test',
+      '/\\evil.test',
+      '/\t/evil.test',
+      '/\n/evil.test',
+      '/books\\..\\//evil.test',
+      'books',
+      'javascript:alert(1)',
+      '/login',
+      '/login?next=https://evil.test',
+    ]) {
       expect(safeNextPath(unsafe)).toBe('/books')
     }
   })

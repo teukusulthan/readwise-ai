@@ -20,7 +20,11 @@ export function LoginForm() {
   const onSubmit = (values: TLoginFormValues) => {
     login.mutate(
       { email: values.email.trim(), password: values.password },
-      { onSuccess: () => navigate(safeNextPath(next), { replace: true }) },
+      {
+        onSuccess: () => navigate(safeNextPath(next), { replace: true }),
+        // Do not leave a rejected password sitting in the field.
+        onError: () => form.resetField('password'),
+      },
     )
   }
 

@@ -1,9 +1,13 @@
-import type { ILoginPayload, ILoginResult, IRegisterPayload, IRegisterResult } from '@/features/auth/types/auth.types'
+import type {
+  ILoginPayload,
+  ILoginResult,
+  IRegisterPayload,
+  IRegisterResult,
+  IVerifyRegistrationPayload,
+} from '@/features/auth/types/auth.types'
 import type { User } from '@/types/models'
 import { apiRequests } from './api-factory.service'
 import { API_ENDPOINTS } from './api-endpoints'
-import apiClient from './api-client'
-import type { ApiResponse } from '@/types/api'
 
 // Payload shapes mirror apps/backend/dto/auth.py
 export type LoginPayload = ILoginPayload
@@ -13,7 +17,9 @@ export interface ForgotPasswordPayload {
   email: string
 }
 
+/** The reset code is only valid together with the email it was sent to. */
 export interface ChangePasswordPayload {
+  email: string
   otp: string
   newPassword: string
 }
@@ -26,9 +32,9 @@ export const authService = {
 
   register: (data: RegisterPayload) => apiRequests.post<IRegisterResult, RegisterPayload>(API_ENDPOINTS.AUTH.REGISTER, data),
 
-  /** The backend reads the code from the query string, not the body. */
-  verifyRegistration: (otp: string) =>
-    apiClient.post<ApiResponse<unknown>, ApiResponse<unknown>>(API_ENDPOINTS.AUTH.VERIFICATION, null, { params: { otp } }),
+  /** In the JSON body (not the query string, which ends up in access logs). */
+  verifyRegistration: (data: IVerifyRegistrationPayload) =>
+    apiRequests.post<{ message: string }, IVerifyRegistrationPayload>(API_ENDPOINTS.AUTH.VERIFICATION, data),
 
   validate: () => apiRequests.get<User>(API_ENDPOINTS.AUTH.VALIDATE, { full_response: true }),
 

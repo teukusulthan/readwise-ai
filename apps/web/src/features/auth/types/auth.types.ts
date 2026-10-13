@@ -20,6 +20,12 @@ export interface IRegisterPayload {
   phone: string
 }
 
+/** POST /auth/verification body: the emailed code is only valid together with its email. */
+export interface IVerifyRegistrationPayload {
+  email: string
+  otp: string
+}
+
 /**
  * POST /auth/register data. `verificationRequired: true` = an OTP was mailed, confirm with
  * POST /auth/verification; `false` = the account exists already (BE_AUTH_EMAIL_VERIFICATION=false).

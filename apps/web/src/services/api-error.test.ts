@@ -22,6 +22,11 @@ describe('toApiError', () => {
     expect(toApiError(failure({ detail: 'plain' }, 422)).message).toBe('plain')
   })
 
+  it('shows the first request-validation message of a 422', () => {
+    const body = { detail: [{ loc: ['body'], msg: 'Value error, Password is too easy to guess; choose a less common one', type: 'value_error' }] }
+    expect(toApiError(failure(body, 422)).message).toBe('Password is too easy to guess; choose a less common one')
+  })
+
   it('falls back to the transport message, then a generic one', () => {
     const network = { message: 'Network Error', config: {} } as AxiosError
     expect(toApiError(network).message).toBe('Network Error')

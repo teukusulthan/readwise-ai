@@ -68,7 +68,28 @@ describe('RegisterForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Verify and continue' }))
 
     expect(await screen.findByText('Login page ?registered=1')).toBeInTheDocument()
-    expect(authService.verifyRegistration).toHaveBeenCalledWith('123456')
+    expect(authService.verifyRegistration).toHaveBeenCalledWith({ email: 'ada@example.test', otp: '123456' })
+  })
+
+  it('lets the user go back from the code step to fix the details', async () => {
+    vi.mocked(authService.register).mockResolvedValue({ data: { message: 'Email register sent', verificationRequired: true } } as never)
+    renderForm()
+    fillAndSubmit()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change details or get a new code' }))
+    expect(screen.getByLabelText('Email')).toHaveValue('ada@example.test')
+  })
+
+  it('refuses a username that looks like a phone number and a password equal to the username', async () => {
+    renderForm()
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: '08123456789' } })
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'ada@example.test' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'ada@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
+
+    expect(await screen.findByText('Include at least one letter')).toBeInTheDocument()
+    expect(screen.getByText('Do not use your username or email as the password')).toBeInTheDocument()
+    expect(authService.register).not.toHaveBeenCalled()
   })
 
   it('checks that the passwords match', async () => {

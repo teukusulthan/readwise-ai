@@ -28,9 +28,16 @@ function resolveResponseCode(body: any): string | number | undefined {
   return body?.detail?.metaData?.responseCode ?? body?.metaData?.responseCode
 }
 
+/** FastAPI's 422 body: `{ detail: [{ msg: 'Value error, Password is too easy to guess…', loc, type }] }`. */
+function validationMessage(detail: unknown): string | undefined {
+  if (!Array.isArray(detail)) return undefined
+  const msg = (detail[0] as any)?.msg
+  return typeof msg === 'string' ? msg.replace(/^Value error, /, '') : undefined
+}
+
 /**
  * Backend failures arrive as a top-level `{ metaData: { message } }` envelope (primary), a plain `{ detail: string }`,
- * or the legacy `{ detail: { metaData } }` shape.
+ * a request-validation list (422), or the legacy `{ detail: { metaData } }` shape.
  */
 export function resolveErrorMessage(error: AxiosError): string {
   const body = error.response?.data as any
@@ -38,6 +45,7 @@ export function resolveErrorMessage(error: AxiosError): string {
   return (
     detail?.metaData?.message ||
     (typeof detail === 'string' ? detail : undefined) ||
+    validationMessage(detail) ||
     body?.metaData?.message ||
     body?.message ||
     error.message ||

@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Sign-in and registration hardening (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/web/src/utils/auth-redirect.ts`, `apps/web/src/features/auth/components/LoginForm.tsx`, `apps/web/src/features/auth/components/RegisterForm.tsx`, `apps/web/src/features/auth/schemas/register.schema.ts`, `apps/web/src/features/auth/hooks/useRegister.ts`, `apps/web/src/features/auth/types/auth.types.ts`, `apps/web/src/services/auth.service.ts`, `apps/web/src/services/api-error.ts`, `apps/web/docker/default.conf.template`
+> `?next=` after sign-in must resolve to this origin (control characters and backslashes, which browsers turn into `//host`, are refused). The verification step sends `{ email, otp }` in the body and can go back to the form. Register mirrors the backend rules (username with a letter, password ≤ 72 bytes and not the username/email); 422 validation messages are shown. A rejected password is cleared from the login form. nginx sends `X-Frame-Options: DENY`, a `frame-ancestors 'none'` CSP, `Permissions-Policy` and `Referrer-Policy` with `index.html` (the server-level headers were not inherited there).
+
 ### 2026-10-13 · nginx: CDN resolved per request, longer /chat/ask timeout (no sprint) · ✅ Done
 
 **Event:** Files modified

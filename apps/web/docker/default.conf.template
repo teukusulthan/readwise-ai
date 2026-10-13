@@ -15,6 +15,8 @@ server {
     gzip on;
     gzip_types text/plain text/css application/javascript application/json image/svg+xml;
 
+    # nginx drops these server-level headers in any location that sets its own add_header: such locations
+    # repeat them (see "/" below, which serves index.html and thus the login and register pages).
     add_header X-Content-Type-Options nosniff always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;
 
@@ -74,9 +76,14 @@ server {
     }
 
     # SPA fallback; index.html must always be revalidated so a new build is picked up.
+    # The app may not be framed (clickjacking on the sign-in form), and pages may only post forms to this origin.
     location / {
         add_header Cache-Control "no-cache";
         add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
+        add_header X-Frame-Options DENY always;
+        add_header Content-Security-Policy "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
         try_files $uri $uri/ /index.html;
     }
 }

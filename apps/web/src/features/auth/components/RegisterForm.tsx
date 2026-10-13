@@ -33,13 +33,21 @@ export function RegisterForm() {
   const onSubmit = (values: TRegisterFormValues) => {
     register.mutate(toRegisterPayload(values), {
       onSuccess: (result) => {
-        if (result.verificationRequired) setCodeSentTo(values.email.trim())
+        if (result.verificationRequired) setCodeSentTo(values.email.trim().toLowerCase())
         else navigate(SIGN_IN_AFTER_REGISTER, { replace: true })
       },
     })
   }
 
-  if (codeSentTo) return <VerifyCodeForm email={codeSentTo} onVerified={() => navigate(SIGN_IN_AFTER_REGISTER, { replace: true })} />
+  if (codeSentTo) {
+    return (
+      <VerifyCodeForm
+        email={codeSentTo}
+        onVerified={() => navigate(SIGN_IN_AFTER_REGISTER, { replace: true })}
+        onBack={() => setCodeSentTo(null)}
+      />
+    )
+  }
 
   return (
     <Form {...form}>
@@ -142,11 +150,20 @@ export function RegisterForm() {
   )
 }
 
-function VerifyCodeForm({ email, onVerified }: { email: string; onVerified: () => void }) {
+interface VerifyCodeFormProps {
+  email: string
+  onVerified: () => void
+  /** Back to the filled-in registration form (wrong email, or a new code is needed). */
+  onBack: () => void
+}
+
+/** The code is checked together with its email; after a few wrong tries the backend discards it. */
+function VerifyCodeForm({ email, onVerified, onBack }: VerifyCodeFormProps) {
   const verify = useVerifyRegistration()
   const form = useForm<TVerifyCodeFormValues>({ resolver: zodResolver(verifyCodeSchema), defaultValues: { otp: '' } })
 
-  const onSubmit = (values: TVerifyCodeFormValues) => verify.mutate(values.otp.trim(), { onSuccess: onVerified })
+  const onSubmit = (values: TVerifyCodeFormValues) =>
+    verify.mutate({ email, otp: values.otp.trim() }, { onSuccess: onVerified, onError: () => form.resetField('otp') })
 
   return (
     <Form {...form}>
@@ -174,6 +191,9 @@ function VerifyCodeForm({ email, onVerified }: { email: string; onVerified: () =
         )}
         <Button type="submit" disabled={verify.isPending}>
           {verify.isPending ? 'Checking…' : 'Verify and continue'}
+        </Button>
+        <Button type="button" variant="ghost" onClick={onBack} disabled={verify.isPending}>
+          Change details or get a new code
         </Button>
       </form>
     </Form>
