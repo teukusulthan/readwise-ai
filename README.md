@@ -2,7 +2,7 @@
 
 An AI assistant for a personal/team book library: upload PDF books, extract → chunk → embed → index their content, search semantically across books, ask questions about one or many books, and receive **streaming answers with source citations**. Library capabilities are also exposed to other agents through an **MCP server**.
 
-Built on the company's "Vibe Coding Base" boilerplate. The boilerplate's rules and skills (`.claude/`) are **guidelines** — this project adapts them to its own stack (see [`.claude/rules/architecture.md`](.claude/rules/architecture.md)).
+Contributor and agent guidance lives in [`AGENTS.md`](AGENTS.md); the architecture is described in [`docs/architecture.md`](docs/architecture.md).
 
 ---
 
@@ -31,7 +31,6 @@ Not used: Supabase, Rust/Axum, mobile (Flutter/React Native), the be-python `age
 
 ```
 library-rag/
-├── .claude/          # Agent rules, skills, commands (guidelines for AI-assisted work)
 ├── apps/
 │   ├── backend/      # FastAPI API (api.py entry, uv-managed)
 │   ├── web/          # React + Vite web app
@@ -43,13 +42,11 @@ library-rag/
 └── nx/               # Nx runner (`npm run dev` starts backend + web)
 ```
 
-The `.ai/` scaffolder and `design/` folder referenced by some generic skills are **not present** in this project.
-
 ---
 
 ## Running locally
 
-**Prerequisites:** Docker, [uv](https://docs.astral.sh/uv/), Node 22+.
+**Prerequisites:** Docker (your user must be in the `docker` group, or prefix the Docker commands with `sudo`), [uv](https://docs.astral.sh/uv/), Node 22+.
 
 ```bash
 # 1. Infrastructure (PostgreSQL, Qdrant, MongoDB, Redis)
@@ -66,6 +63,8 @@ cd apps/web
 npm install
 npm run dev
 ```
+
+The databases can also be run without Docker: install PostgreSQL 16 (with the pgvector extension), Qdrant, MongoDB and Redis yourself and point the `BE_*` connection settings in `apps/backend/.env` at them.
 
 Tests: `uv run pytest` (backend, and in `apps/mcp/library`), `npm test` (web).
 
@@ -118,7 +117,7 @@ docker compose --profile app ps                           # backend, web, mcp sh
 
 ## AI Agent System
 
-Rules and skills are loaded on demand via `orchestra.md` files. Load order: `CLAUDE.md` / `AGENTS.md` → `.claude/rules/architecture.md` → domain orchestra (`.claude/skills/orchestra/`) → app `AI_GUIDE.md` → specific skills.
+Start with [`AGENTS.md`](AGENTS.md) (`CLAUDE.md` points to it), then the app `AI_GUIDE.md` for the area you are changing (`apps/backend/AI_GUIDE.md`, `apps/web/AI_GUIDE.md`). The `.claude/` folder (skills, rules) is optional local tooling that is git-ignored and may be absent.
 
 ---
 

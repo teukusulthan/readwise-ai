@@ -24,4 +24,4 @@ Semua mock data disimpan di folder `data/`.
 
 - Jangan modifikasi file di `data/` langsung — duplikat dulu jika perlu edit
 - Data hanya dipakai di stage POC dan MVP
-- Lihat [.claude/rules/project-scope.md](../.claude/rules/project-scope.md) untuk konvensi scope POC/MVP
+- Lihat bagian "Scope and data" di [AGENTS.md](../AGENTS.md) untuk konvensi scope POC/MVP

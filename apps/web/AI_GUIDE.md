@@ -1,6 +1,6 @@
 # AI Agent Guide — Web (React + Vite)
 
-Quick start guide for AI agents working with this boilerplate.
+Quick start guide for contributors and AI agents. Start with [`AGENTS.md`](../../AGENTS.md). Entries below that point to `skills/...` refer to optional local tooling (git-ignored, may be absent); the rules in this file and in `AGENTS.md` stand on their own.
 
 ## 🚀 First Time Setup
 
@@ -49,8 +49,6 @@ Then load additional skill(s) per task (see Documentation Map below).
 
 | File                               | Purpose                    | When to Read    |
 | ---------------------------------- | -------------------------- | --------------- |
-| **`design/design-system.md`**      | Active design resolver     | Any UI work     |
-| **`design/web/[theme]/DESIGN.md`** | UI contracts & token rules | Any UI work     |
 | **`docs/api-spec.md`**             | Backend endpoint contracts | API integration |
 
 ## 🚨 Critical Rules Summary
@@ -135,7 +133,7 @@ What are you adding?
 
 1. ✅ Check `docs/api-spec.md` — understand endpoint contract before writing service
 2. ✅ Load skill(s) matching your task (see Documentation Map above)
-3. ✅ Check `design/design-system.md` for UI tasks
+3. ✅ Reuse the existing tokens and classes in `src/styles/` ("Mist & Ink", light mode) for UI tasks
 4. ✅ Define types in `src/types/{module}.d.ts`
 5. ✅ Decide state layer — read `reactjs-state-management` decision tree first
    - API data → TanStack Query hook in `src/features/{domain}/hooks/`

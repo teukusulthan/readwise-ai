@@ -133,7 +133,7 @@ web-reactjs/
             └── LoginPage.tsx
 ```
 
-> Component placement follows the decision tree in `.claude/rules/architecture.md` § Component Placement Enforcement: shadcn/Radix primitives → `components/ui/`, app shell → `components/layouts/`, 3rd-party adapters → `components/wrappers/`, generic logic reused by 2+ features → `modules/{name}/`, domain-specific → `features/{domain}/{feature}/components/`, single-page-only → `pages/{page}/parts/`. Never place domain-specific components directly under `src/components/`.
+> Component placement follows the decision tree in [`AGENTS.md`](../../AGENTS.md) § Web rules: shadcn/Radix primitives → `components/ui/`, app shell → `components/layouts/`, 3rd-party adapters → `components/wrappers/`, generic logic reused by 2+ features → `modules/{name}/`, domain-specific → `features/{domain}/{feature}/components/`, single-page-only → `pages/{page}/parts/`. Never place domain-specific components directly under `src/components/`.
 
 ## Component Wrappers
 

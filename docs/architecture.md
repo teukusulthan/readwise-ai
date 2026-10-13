@@ -1,7 +1,7 @@
 # RAG Book Library — Application Architecture
 
 > Describes what is **built and verified** as of 2026-10-09. Items marked **🛠 Not yet** are designed but not implemented.
-> Stack policy: [`.claude/rules/architecture.md`](../.claude/rules/architecture.md) · Endpoints: [`docs/api-spec.md`](./api-spec.md) · Tables: [`docs/database-schema.md`](./database-schema.md)
+> Stack policy: [`AGENTS.md`](../AGENTS.md) · Endpoints: [`docs/api-spec.md`](./api-spec.md) · Tables: [`docs/database-schema.md`](./database-schema.md)
 
 ---
 
@@ -28,8 +28,7 @@ library-rag/
 │   ├── web/              React 18 + TypeScript + Vite
 │   └── mcp/library/      FastMCP server over the backend REST API (stdio / HTTP)
 ├── docker-compose.yml    PostgreSQL (pgvector image), Qdrant, MongoDB, Redis — 127.0.0.1 only
-├── docs/                 this file, api-spec.md, database-schema.md
-└── .claude/              agent rules + skills (guidelines)
+└── docs/                 this file, api-spec.md, database-schema.md
 ```
 
 ---

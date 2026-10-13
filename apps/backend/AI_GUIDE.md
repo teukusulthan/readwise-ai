@@ -1,6 +1,6 @@
 # AI Agent Guide — Backend (Python/FastAPI)
 
-Quick start guide for AI agents working with this boilerplate.
+Quick start guide for contributors and AI agents. Start with [`AGENTS.md`](../../AGENTS.md). Entries below that point to `skills/...` refer to optional local tooling (git-ignored, may be absent); the rules in this file and in `AGENTS.md` stand on their own.
 
 ## 🚀 First Time Setup
 
@@ -60,7 +60,7 @@ Then load additional skill(s) per task (see Documentation Map below).
 - 📦 Python 3.12 · FastAPI · Pydantic v2 · psycopg 3 (PostgreSQL) · qdrant-client · PyMongo + Redis (legacy modules) · Loguru · PyJWT · bcrypt · pycryptodome
 - ✅ Dependencies are managed with **uv** (`pyproject.toml` + `uv.lock`): check `pyproject.toml` first, add with `uv add <pkg>` / `uv add --dev <pkg>`
 - ✅ New domain data (books, chunks, status) → PostgreSQL; vectors → Qdrant; MongoDB is for the existing boilerplate modules only
-- ✅ Full stack and policy: `.claude/rules/architecture.md`
+- ✅ Full stack and policy: [`AGENTS.md`](../../AGENTS.md)
 
 ### Logging
 - ✅ Use `loguru.logger` for all logging
@@ -107,7 +107,7 @@ Adding feature to existing module?
 
 1. ✅ Check `docs/api-spec.md` — does the endpoint already exist?
 2. ✅ Check `docs/database-schema.md` — does the collection exist?
-3. ✅ Load `skills/orchestra.md` — pick relevant skill files
+3. ✅ If available, load the relevant local skill files (optional)
 4. ✅ Create/update DTO in `dto/{module}.py`
 5. ✅ Create/update service in `service/{module}.py` (extend `BaseMongoRepository`)
 6. ✅ Create/update router in `router/{module}.py`
