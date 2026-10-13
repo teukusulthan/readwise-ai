@@ -21,10 +21,10 @@ Then load additional skill(s) per task (see Documentation Map below).
 | **`skills/reactjs-anti-slop/SKILL.md`**        | Anti-AI-slop quality gate — pre-emit self-critique, honest copy, no redrawn UI chrome, 4-viewport responsive check, full interaction-state coverage, pre-handoff slop checklist | Before marking any UI slice/component complete — runs alongside `reactjs-slicing-ui`        |
 | **`skills/reactjs-design-system/SKILL.md`**    | Apply active design system — shadcn token/variant wiring, CSS variables, dark mode, DESIGN.md composition patterns                    | Fixing visual drift, shadcn default styling, font/color issues, or design token compliance |
 | **`skills/reactjs-api-design/SKILL.md`**       | API design reference — endpoint constants, request/response DTOs, response envelope types, `fusion-openapi.json` contract             | Writing service files, defining `API_ENDPOINTS`, or typing request/response payloads       |
-| **`skills/reactjs-service/SKILL.md`**          | Service files, `createResourceService`, `apiRequests`, CRUD pattern                                                                   | Writing services, calling API                                                              |
+| **`skills/reactjs-service/SKILL.md`**          | Service files, `apiRequests`, CRUD pattern                                                                   | Writing services, calling API                                                              |
 | **`skills/reactjs-tanstack-query/SKILL.md`**   | TanStack Query — `useQuery`, `useMutation`, queryKey conventions, filter integration, infinite scroll                                 | Any API data fetch, mutation, or cache management                                          |
-| **`skills/reactjs-state-management/SKILL.md`** | Decision router — Zustand, TanStack Query, XState, React Hook Form, useState                                                          | Creating/modifying any state layer                                                         |
-| **`skills/reactjs-xstate/SKILL.md`**           | XState state machines — approval workflow, incident lifecycle, multi-step process                                                     | Feature with status transitions, guards, or approval flow                                  |
+| **`skills/reactjs-state-management/SKILL.md`** | Decision router — Zustand, TanStack Query, React Hook Form, useState                                                          | Creating/modifying any state layer                                                         |
+| **`skills/reactjs-xstate/SKILL.md`**           | (xstate is not installed in this app) XState state machines                                                                                | Feature with status transitions, guards, or approval flow                                  |
 | **`skills/reactjs-error-handling/SKILL.md`**   | Error boundaries, try-catch, error states                                                                                             | Any async function, API call, `useEffect`                                                  |
 | **`skills/reactjs-form/SKILL.md`**             | React Hook Form + Zod validation                                                                                                      | Implementing forms                                                                         |
 | **`skills/reactjs-features/SKILL.md`**         | Scaffold domain feature folder (types → store → hook → component)                                                                     | Creating new feature under `src/features/`                                                 |
@@ -88,7 +88,6 @@ Then load additional skill(s) per task (see Documentation Map below).
 - ✅ Always handle loading + error states on every async operation
 - ✅ **TanStack Query** for all server/API data — loading, caching, refetch, mutation
 - ✅ **Zustand** for client UI state (filters, selections, preferences) — not API data
-- ✅ **XState** for features with multi-step transitions, guards, or approval flows
 - ✅ `useState` for local component state only
 
 ## 🎯 Quick Decision Guide
@@ -118,8 +117,6 @@ What are you adding?
 ├─ Domain utils / helpers     → src/features/{domain}/{feature}/utils/
 ├─ Domain constants / enums   → src/features/{domain}/{feature}/constants/
 ├─ Domain config (col defs, chart opts) → src/features/{domain}/{feature}/config/
-├─ Domain mock / fixture data → src/features/{domain}/{feature}/mocks/
-├─ Process/workflow state     → src/features/{domain}/{feature}/machines/{name}.machine.ts (XState)
 ├─ UI primitive (shadcn)      → src/components/ui/  (install via shadcn CLI if missing)
 ├─ API service (complex)      → src/services/{module}.service.ts
 ├─ Global cross-domain hook   → src/hooks/use-{name}.ts
@@ -137,10 +134,9 @@ What are you adding?
 4. ✅ Define types in `src/types/{module}.d.ts`
 5. ✅ Decide state layer — read `reactjs-state-management` decision tree first
    - API data → TanStack Query hook in `src/features/{domain}/hooks/`
-   - Workflow/process → XState machine in `src/features/{domain}/machines/`
    - UI/client state → Zustand in `src/stores/`
 6. ✅ Add endpoint to `src/services/api-endpoints.ts`
-7. ✅ Create service in `src/services/{module}.service.ts` (if `createResourceService` applies)
+7. ✅ Create service in `src/services/{module}.service.ts`
 8. ✅ Create page in `src/pages/{module}/`
 9. ✅ Register route in `src/routes/`
 10. ✅ Add menu entry in `src/config/menu/` for every user-facing page
@@ -183,178 +179,12 @@ src/
 │   ├── api-factory.service.ts  → apiRequests helpers (get/post/put/patch/delete/upload) — resolve to the `ApiResponse<T>` envelope ({ metaData, data })
 │   ├── auth.service.ts
 │   ├── book / chat / conversation / search .service.ts → library API calls
-│   ├── mock-client.ts          → fetch wrapper for public/data/ (POC only, created once)
-│   ├── mock-endpoints.ts       → Mock file path constants (add entry per mock file)
-│   └── mock.service.ts         → mockRequest() helper — used by all domain services in POC
 ├── stores/                 → Zustand stores
 ├── styles/                 → theme.css, variables.css, components.css
 ├── types/
 │   └── *.d.ts              → TypeScript .d.ts definitions
 └── utils/                  → cn, icon-renderer, auth-redirect
 ```
-
-## 🗂️ Mock Data
-
-Mock data is stored in `public/data/` as **JSON** or **CSV** files and served statically by the dev server.
-
-### Rules
-
-- All mock files go in `public/data/` — never inside `src/`
-- Use `.json` for structured records, `.csv` for tabular/export-style data
-- Every `.json` mock file **must** follow this envelope structure:
-
-```json
-{
-  "metaData": {
-    "status": true,
-    "title": "...",
-    "...": "any additional metadata fields"
-  },
-  "data": []
-}
-```
-
-> `metaData.status` is required (`boolean`). Add any other metadata fields (title, tahun, total, etc.) as needed. Domain records live in `data[]` — never at the root level.
-
-- Initial mock data is copied from the root `data/` folder into `public/data/` when setting up the project
-- In POC scope, this is the **only** data source — no backend calls
-- Mock fetches live in `src/services/{module}.service.ts` — **never** inside components, hooks, or stores
-- The mock service layer mirrors the real API layer exactly — one infrastructure file per concern, domain services on top
-- `apiClient` is reserved for backend API calls; `mockClient` is reserved for `public/data/` static files — never mix them
-- **Never** call raw `fetch('/data/...')` in domain services — always go through `mockRequest()`
-- One `mockClient` + one `mock-endpoints.ts` for the whole project; each domain gets its **own service** and its **own store**
-
-### Mock Service Layer — parallel to real API layer
-
-| Real API                                 | Mock                                | Role                                                          |
-| ---------------------------------------- | ----------------------------------- | ------------------------------------------------------------- |
-| `api-client.ts`                          | `mock-client.ts`                    | HTTP/fetch transport (created once, never edited per-feature) |
-| `api-endpoints.ts`                       | `mock-endpoints.ts`                 | File path constants (add an entry per mock file)              |
-| `api-factory.service.ts` → `apiRequests` | `mock.service.ts` → `mockRequest()` | Typed helper used by domain services / TanStack Query hooks   |
-| `{module}.service.ts`                    | `{module}.service.ts`               | Domain service (uses `mockRequest`)                           |
-
-**`src/services/mock-client.ts`** — created once per project
-
-```ts
-const mockClient = {
-  get: async <T>(path: string): Promise<T> => {
-    const res = await fetch(`/data/${path}`)
-    if (!res.ok) throw new Error(`Failed to load mock data: ${path}`)
-    return res.json()
-  },
-}
-
-export default mockClient
-```
-
-**`src/services/mock-endpoints.ts`** — add one entry per mock file (analogous to `api-endpoints.ts`)
-
-```ts
-export const MOCK_ENDPOINTS = {
-  SENTIMENT: 'mock-sentiment.json',
-  PENDUDUK: 'mock/data-penduduk.json',
-} as const
-```
-
-> Never pass raw string literals to `mockRequest()` — always reference `MOCK_ENDPOINTS.*`.
-
-**`src/services/mock.service.ts`** — typed helper (analogous to `api.service.ts` / `request()`)
-
-```ts
-import mockClient from './mock-client'
-
-export function mockRequest<T>(path: string): Promise<T> {
-  return mockClient.get<T>(path)
-}
-```
-
-### Folder Convention
-
-```
-public/
-└── data/
-    ├── mock-sentiment.json     ← copied from data/mock-sentiment.json
-    ├── mock/
-    │   ├── data-penduduk.json  ← copied from data/mock/data-penduduk.json
-    │   └── data-sentimen.json  ← copied from data/mock/data-sentimen.json
-    └── ...                     ← add new mock files here
-```
-
-### Full Chain — mockRequest → Service → Store → Component
-
-**1. Service** (`src/services/sentiment.service.ts`)
-
-```ts
-import { mockRequest } from './mock.service'
-import { MOCK_ENDPOINTS } from './mock-endpoints'
-import type { TSentiment } from '@/types/models'
-
-export const sentimentService = {
-  getAll: () => mockRequest<TSentiment[]>(MOCK_ENDPOINTS.SENTIMENT),
-}
-```
-
-**2. Zustand store** (`src/stores/useSentimentStore.ts`)
-
-```ts
-import { create } from 'zustand'
-import { sentimentService } from '@/services/sentiment.service'
-import type { TSentiment } from '@/types/models'
-
-interface SentimentState {
-  data: TSentiment[]
-  loading: boolean
-  error: string | null
-  fetch: () => Promise<void>
-}
-
-export const useSentimentStore = create<SentimentState>((set) => ({
-  data: [],
-  loading: false,
-  error: null,
-  fetch: async () => {
-    set({ loading: true, error: null })
-    try {
-      const data = await sentimentService.getAll()
-      set({ data })
-    } catch (e) {
-      set({ error: (e as Error).message })
-    } finally {
-      set({ loading: false })
-    }
-  },
-}))
-```
-
-**3. Component** (`src/pages/sentiment/SentimentPage.tsx`)
-
-```tsx
-import { useEffect } from 'react'
-import { useSentimentStore } from '@/stores/useSentimentStore'
-
-export function SentimentPage() {
-  const { data, loading, error, fetch } = useSentimentStore()
-
-  useEffect(() => {
-    fetch()
-  }, [fetch])
-
-  if (loading) return <p>Loading…</p>
-  if (error) return <p className="text-destructive">{error}</p>
-
-  return (
-    <ul>
-      {data.map((item) => (
-        <li key={item.id}>{item.label}</li>
-      ))}
-    </ul>
-  )
-}
-```
-
-> **Flow:** Component → store → domain service → `mockRequest()` → `mockClient` → `public/data/`. Never skip a layer. One client, one endpoints file, many services, many stores.
-
----
 
 ## ⚠️ Common Mistakes to Avoid
 
@@ -367,41 +197,35 @@ export function SentimentPage() {
 7. ❌ **New axios instance** — use `src/services/api-client.ts`
 8. ❌ **Store API response data in Zustand** — use TanStack Query cache; Zustand is for UI/client state only
 9. ❌ **Manage `isLoading`/`isError` with `useState` for API calls** — let `useQuery` handle them
-10. ❌ **Use Zustand `status` string + scattered `if` checks for workflows** — use XState for features with transition rules
-11. ❌ **Raw `fetch('/data/...')` in domain services** — use `mockRequest()` from `src/services/mock.service.ts`
-12. ❌ **Raw string path in `mockRequest()`** — always reference `MOCK_ENDPOINTS.*` from `mock-endpoints.ts`
-13. ❌ **Flat JSON array at root of mock file** — wrap in `{ metaData: { status: boolean, ... }, data: [] }` envelope
-14. ❌ **New package without checking `package.json`** first
-15. ❌ **Hardcode colors** — use CSS variables from `styles/tailwind.css`
-16. ❌ **Accept raw shadcn defaults as final UI** — align with active `DESIGN.md`
-17. ❌ **Let shadcn Sidebar cover the header** — offset fixed sidebar below a full-width topbar
-18. ❌ **Finish a user-facing page without wiring navigation** — add route + menu entry together unless the route is explicitly hidden
-19. ❌ **Hardcode sidebar/header menu arrays** — add items to `src/config/menu/*`
-20. ❌ **Use `REACT_` prefix for env keys** — this stack uses Vite, prefix must be `VITE_`
-21. ❌ **Put `.env` at app root** — env files live in `env/` subfolder (`env/.env`, `env/.env.example`, etc.)
-22. ❌ **Call `import.meta.env.*` directly in components** — always go through `src/config/env.ts`
-23. ❌ **Add key to `.env` without updating `.env.example`** — always sync both files
-24. ❌ **Hardcode brand values in `index.html`** — use `{{PLACEHOLDER}}` tokens; replace all when bootstrapping a new app (see `reactjs-seo-html` skill)
-25. ❌ **Use `react-helmet` for static app-level meta tags** — static SEO belongs in `index.html` only; `usePageTitle` handles per-page `document.title` at runtime
-26. ❌ **Define helper/util functions inside a `.tsx` component file** — extract to `src/utils/` (global) or `features/{domain}/{name}/utils/` (domain)
-27. ❌ **Define types or interfaces inside a `.tsx` component file** — extract to `src/types/` (global) or `features/{domain}/{name}/types/` (domain)
-28. ❌ **Define constants, enums, or label maps inside a `.tsx` component file** — extract to `src/config/constants.ts` (global) or `features/{domain}/{name}/constants/`
-29. ❌ **Define column defs, chart options, or filter config inside a `.tsx` component file** — extract to `features/{domain}/{name}/config/` or `pages/{page}/{name}.config.ts`
-30. ❌ **Put mock/fixture data arrays inside a component file** — use `public/data/*.json` (POC) or `features/{domain}/{name}/mocks/` (local fixtures)
-31. ❌ **Put domain-specific utils/constants in `src/utils/` or `src/config/`** — only truly cross-domain, generic helpers belong at the global level
-32. ❌ **Hand-write a shadcn primitive from scratch** when `src/components/ui/` doesn't have it — install via `npx shadcn@latest add <name>` first, then wire tokens to `DESIGN.md`
-33. ❌ **Run shadcn CLI at repo root** — always run it inside the target app folder (`apps/{app}/`)
-34. ❌ **Create `parts/` or `hooks/` subfolders inside `pages/{page}/`** — a page folder contains exactly one file (`{NamePage}.tsx`); all supporting code goes into `src/features/{domain}/{feature}/`
-35. ❌ **Skip creating a feature folder because the code is "only used by one page"** — always scaffold under `features/{domain}/`; there is no `pages/` subfolder fallback
+10. ❌ **New package without checking `package.json`** first
+11. ❌ **Hardcode colors** — use CSS variables from `styles/tailwind.css`
+12. ❌ **Accept raw shadcn defaults as final UI** — align with active `DESIGN.md`
+13. ❌ **Let shadcn Sidebar cover the header** — offset fixed sidebar below a full-width topbar
+14. ❌ **Finish a user-facing page without wiring navigation** — add route + menu entry together unless the route is explicitly hidden
+15. ❌ **Hardcode sidebar/header menu arrays** — add items to `src/config/menu/*`
+16. ❌ **Use `REACT_` prefix for env keys** — this stack uses Vite, prefix must be `VITE_`
+17. ❌ **Put `.env` at app root** — env files live in `env/` subfolder (`env/.env`, `env/.env.example`, etc.)
+18. ❌ **Call `import.meta.env.*` directly in components** — always go through `src/config/env.ts`
+19. ❌ **Add key to `.env` without updating `.env.example`** — always sync both files
+20. ❌ **Hardcode brand values in `index.html`** — use `{{PLACEHOLDER}}` tokens; replace all when bootstrapping a new app (see `reactjs-seo-html` skill)
+21. ❌ **Use `react-helmet` for static app-level meta tags** — static SEO belongs in `index.html` only; `usePageTitle` handles per-page `document.title` at runtime
+22. ❌ **Define helper/util functions inside a `.tsx` component file** — extract to `src/utils/` (global) or `features/{domain}/{name}/utils/` (domain)
+23. ❌ **Define types or interfaces inside a `.tsx` component file** — extract to `src/types/` (global) or `features/{domain}/{name}/types/` (domain)
+24. ❌ **Define constants, enums, or label maps inside a `.tsx` component file** — extract to `src/config/constants.ts` (global) or `features/{domain}/{name}/constants/`
+25. ❌ **Define column defs, chart options, or filter config inside a `.tsx` component file** — extract to `features/{domain}/{name}/config/` or `pages/{page}/{name}.config.ts`
+26. ❌ **Put mock/fixture data arrays inside a component file** — use `features/{domain}/{name}/mocks/` (local fixtures)
+27. ❌ **Put domain-specific utils/constants in `src/utils/` or `src/config/`** — only truly cross-domain, generic helpers belong at the global level
+28. ❌ **Hand-write a shadcn primitive from scratch** when `src/components/ui/` doesn't have it — install via `npx shadcn@latest add <name>` first, then wire tokens to `DESIGN.md`
+29. ❌ **Run shadcn CLI at repo root** — always run it inside the target app folder (`apps/{app}/`)
+30. ❌ **Create `parts/` or `hooks/` subfolders inside `pages/{page}/`** — a page folder contains exactly one file (`{NamePage}.tsx`); all supporting code goes into `src/features/{domain}/{feature}/`
+31. ❌ **Skip creating a feature folder because the code is "only used by one page"** — always scaffold under `features/{domain}/`; there is no `pages/` subfolder fallback
 
 ## 💡 Pro Tips
 
 1. **`api-factory.service.ts`** — use `apiRequests.get/post/put/patch/delete/upload` directly in TanStack Query hooks; don't call `apiClient` manually
 2. **TanStack Query is the default for API data** — `useQuery` in hooks, never store responses in Zustand
-3. **XState for workflow/process state** — any feature with explicit transitions or approval steps; read `reactjs-xstate` skill first
-4. **`RoleGuard` + `AuthGuard`** are already built — use them for protected routes
-5. **Mock layer mirrors real API layer** — `mock-client` / `mock-endpoints` / `mock.service` swap out cleanly for `api-client` / `api-endpoints` / `api-factory.service` when graduating from POC to MVP
-6. **shadcn primitive missing from `src/components/ui/`?** Install it first: `npx shadcn@latest add <name>` (run from inside `apps/{app}/`), then align `cva` variants to active `DESIGN.md` before using it
+3. **`RoleGuard` + `AuthGuard`** are already built — use them for protected routes
+4. **shadcn primitive missing from `src/components/ui/`?** Install it first: `npx shadcn@latest add <name>` (run from inside `apps/{app}/`), then align `cva` variants to active `DESIGN.md` before using it
 
 ## 📞 Quick Commands
 
@@ -432,9 +256,7 @@ Your generated code is good if:
 - [ ] No API calls inside components — all in `src/services/`
 - [ ] TypeScript types defined in `src/types/`
 - [ ] API data fetched via TanStack Query hooks (`useQuery` / `useMutation`) using `apiRequests` from `api-factory.service.ts`
-- [ ] Mock data fetched via `mockRequest()` + `MOCK_ENDPOINTS.*` (POC)
 - [ ] Global UI state uses Zustand store — no API response data stored in Zustand
-- [ ] Features with status transitions use XState machine, not ad-hoc `status` strings in Zustand
 - [ ] Path aliases used (`@/`) — no relative imports
 - [ ] Tailwind classes only — no inline styles
 - [ ] Light/dark theme supported via CSS variables

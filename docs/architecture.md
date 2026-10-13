@@ -317,7 +317,8 @@ Read-only tools; the server never connects to Postgres, Qdrant or storage, so th
 | Path | Role |
 |---|---|
 | `pages/library/CatalogPage.tsx`, `BookDetailPage.tsx`, `SearchPage.tsx`, `AskPage.tsx`; `pages/auth/LoginPage.tsx`, `RegisterPage.tsx` | Thin route pages |
-| `routes/main.routes.tsx` | `/books`, `/books/:id`, `/search`, `/ask/:conversationId?`, `/login`, `/register` (full-height route via `handle.fullHeight`; `/` → `/books`) |
+| `routes/main.routes.tsx` | `/books`, `/books/:id`, `/search`, `/ask/:conversationId?` (full-height route via `handle.fullHeight`; `/` → `/books`) |
+| `routes/auth.routes.tsx` | `/login`, `/register` (outside the app shell) |
 | `config/menu/app.menu.ts` | Sidebar entries (Catalog, Search, Ask) |
 | `services/book.service.ts`, `search.service.ts`, `chat.service.ts`, `conversation.service.ts`, `api-endpoints.ts` | API calls via `apiRequests` |
 | `features/library/catalog/*` | Catalog grid, search, filters, pagination, import/add dialogs |
