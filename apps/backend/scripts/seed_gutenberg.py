@@ -181,6 +181,27 @@ def _slug(text: str) -> str:
 
 # ── backend API ──────────────────────────────────────────────────────
 
+def error_message(response: httpx.Response) -> str:
+    """The API's failure message: top-level `metaData.message` (the envelope), else `detail` (plain or legacy)."""
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text.strip() or response.reason_phrase
+    if not isinstance(body, dict):
+        return str(body)
+    meta = body.get("metaData")
+    if isinstance(meta, dict) and meta.get("message"):
+        return str(meta["message"])
+    detail = body.get("detail")
+    if isinstance(detail, dict):
+        legacy = detail.get("metaData")
+        if isinstance(legacy, dict) and legacy.get("message"):
+            return str(legacy["message"])
+    if detail:
+        return detail if isinstance(detail, str) else str(detail)
+    return response.reason_phrase
+
+
 class Library:
     def __init__(self, base_url: str, token: str | None, internal_token: str | None = None):
         headers = {"Authorization": f"Bearer {token}"} if token else {}
@@ -190,8 +211,7 @@ class Library:
 
     def _data(self, response: httpx.Response):
         if response.status_code >= 400:
-            detail = response.json().get("detail", {}) if "json" in response.headers.get("content-type", "") else {}
-            message = detail.get("metaData", {}).get("message") if isinstance(detail, dict) else detail
+            message = error_message(response)
             raise RuntimeError(f"{response.request.method} {response.request.url.path} → {response.status_code}: {message}")
         return response.json()["data"]
 
