@@ -194,7 +194,7 @@ If you need to use these modules, you can access the documentation for the Auth,
 | POST | `/book/get-all` | List/search books (`search` on title/author/ISBN/publisher, `status` filter, paginated) | JWTBearer |
 | GET | `/book/get-one` | Book details incl. `ingestion` status and `searchable` | JWTBearer |
 | GET | `/book/file` | Stream the stored PDF (`?id=`, `application/pdf`, `Content-Disposition: inline` with the original file name). Open with `#page=N` to jump to a page. 404 when the book or its file is missing. Accepts the session cookie, so plain links work | JWTBearer |
-| DELETE | `/book/delete` | Delete book, stored PDF and vectors (409 while indexing) | JWTBearer |
+| DELETE | `/book/delete` | Delete book, stored PDF and vectors (409 while indexing). Once the row is deleted the call succeeds: if the vector store is unreachable the stored PDF is still removed and the leftover vectors are only logged (search ignores books that are not in the catalog) | JWTBearer |
 | POST | `/book/upload` | Upload a PDF (multipart `file`, optional `bookId` / `title`) and queue indexing; 409 on duplicate file or when the `bookId` book already has a document (also for the loser of two concurrent attaches) | JWTBearer |
 | POST | `/book/reindex` | Re-run indexing for an `indexed`/`failed` book (`?id=`); resets `ingestion.attempts` to 0 | JWTBearer |
 | GET | `/book/lookup` | Search Open Library (`?q=`) for books to import | JWTBearer |

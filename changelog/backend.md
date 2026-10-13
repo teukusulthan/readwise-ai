@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Book delete survives a vector store outage (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/service/book.py`, `apps/backend/tests/unit/test_book_consistency.py`, `docs/api-spec.md`
+> When deleting the vectors fails after the row is gone, the stored PDF is still discarded (`finally`) and the error is logged as a warning; `DELETE /book/delete` answers 200 because the book is deleted and search ignores its leftover points.
+
 ### 2026-10-13 · Account defaults and registration gates (no sprint) · ✅ Done
 
 **Event:** Files modified

@@ -11,6 +11,7 @@ import io
 import uuid
 
 import pytest
+from loguru import logger
 
 from service.book import Book, BookNotFoundError
 from util.http_errors import ConflictError
@@ -108,6 +109,27 @@ def test_delete_removes_row_then_vectors_and_file(storage_dir):
 
     assert service.delete(str(row["id"])) == {"id": str(row["id"]), "deleted": True}
     assert repo.rows == {} and service.vector_store.deleted == [str(row["id"])] and not pdf.exists()
+
+
+def test_delete_still_discards_the_file_when_vector_cleanup_fails(storage_dir):
+    class DownVectors(FakeVectors):
+        def delete_book(self, book_id):
+            raise ConnectionError("qdrant unreachable")
+
+    pdf = storage_dir / "book.pdf"
+    pdf.write_bytes(PDF_A)
+    row = _row(sha="abc", file_path=str(pdf))
+    service, repo = _service(row)
+    service.vector_store = DownVectors()
+    warnings = []
+    handler = logger.add(warnings.append, level="WARNING", format="{message}")
+    try:
+        # The row is gone, so the delete happened: success, with the leftover vectors logged.
+        assert service.delete(str(row["id"])) == {"id": str(row["id"]), "deleted": True}
+    finally:
+        logger.remove(handler)
+    assert repo.rows == {} and not pdf.exists()
+    assert any("vectors were not removed" in w and "qdrant unreachable" in w for w in warnings)
 
 
 @pytest.mark.parametrize("status", ["queued", "processing"])

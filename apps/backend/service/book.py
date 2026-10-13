@@ -70,14 +70,24 @@ class Book:
         Row first, in one guarded statement (refused while the worker owns the book), then its
         vectors and file. Search only uses books in the catalog, so points left behind by a failed
         cleanup are never returned; the worker also drops points of a book deleted under it.
+        Once the row is gone the delete has happened: a vector cleanup failure (e.g. Qdrant down)
+        is logged as a warning, the stored PDF is still discarded, and the call succeeds.
         """
         row = self.repository.delete_if_idle(parse_book_id(book_id))
         if row is None:
             self._get_row(book_id)  # 404 if it doesn't exist
             raise ConflictError(_BUSY_MESSAGE)
-        self.vector_store.delete_book(row["id"])
-        if row["file_path"]:
-            storage.discard(row["file_path"])
+        try:
+            self.vector_store.delete_book(row["id"])
+        except Exception as error:
+            logger.warning(
+                "Book {id} deleted, but its vectors were not removed ({error}); search ignores them "
+                "because the book is no longer in the catalog.",
+                id=row["id"], error=error,
+            )
+        finally:
+            if row["file_path"]:
+                storage.discard(row["file_path"])
         return {"id": str(row["id"]), "deleted": True}
 
     def get_document(self, book_id) -> tuple[Path, str]:
