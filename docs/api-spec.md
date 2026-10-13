@@ -54,7 +54,18 @@ accounts existed (`owner_id` NULL) belong to `"local"` only. The book catalog is
 (`BE_AUTH_EMAIL_VERIFICATION=true`): MX + Proofy check, an OTP is mailed over SMTP →
 `{ message, verificationRequired: true }`; confirm with `POST /auth/verification?otp=`. Development
 (`BE_AUTH_EMAIL_VERIFICATION=false`): the account is created at once → `{ message, verificationRequired: false, id }`.
-`400` with the message when the email, username or phone is taken.
+`400` with the message when the email, username or phone is taken. `BE_AUTH_REGISTRATION_OPEN=false` closes every
+registration endpoint (`/auth/register`, `/auth/verification`, `/auth/google/register`) with `403`
+"Registration is closed."; existing accounts still log in.
+
+**Login.** Only accounts with `status: "active"` log in (both registration paths create them active); any other
+status answers `403` ("User doesn't have login access", or "Account has been blocked/deleted/expired") — but only
+after the password matched; a wrong password is always `400` "Incorrect email or password". `emailVerified` is not
+checked at login (the development registration path sets it `false`).
+
+**Google OAuth.** `/auth/google/*` is mounted only when `BE_GOOGLE_CLIENT_ID` and `BE_GOOGLE_CLIENT_SECRET` are both
+set (`404` otherwise). `/auth/google/register` uses only the profile fields of its body and always creates an active,
+unverified account (see [docs/api/auth.md](./api/auth.md)).
 
 ---
 
@@ -130,15 +141,15 @@ If you need to use these modules, you can access the documentation for the Auth,
 | GET | `/health/ready` | Readiness: pings every configured backing service (503 if any is down) | No |
 | GET | `/monitoring/threadpool` | Threadpool monitoring stats (only when the `monitoring` router is enabled; unmounted by default) | No |
 | POST | `/auth/login` | Login user | No |
-| POST | `/auth/register` | Register new user | No |
-| POST | `/auth/verification` | Verify registration OTP | No |
+| POST | `/auth/register` | Register new user (`403` when `BE_AUTH_REGISTRATION_OPEN=false`) | No |
+| POST | `/auth/verification` | Verify registration OTP (`403` when registration is closed) | No |
 | DELETE | `/auth/logout` | Logout user | JWTRefresh |
 | GET | `/auth/validate` | Validate token | JWTRefresh |
 | GET | `/auth/refresh` | Refresh access token | JWTRefresh |
-| GET | `/auth/google` | Initiate Google OAuth | No |
-| POST | `/auth/google/callback` | Google OAuth callback | No |
-| POST | `/auth/google/token_exchange` | Exchange Google token | No |
-| POST | `/auth/google/register` | Register via Google SSO | No |
+| GET | `/auth/google` | Initiate Google OAuth (only with Google OAuth configured) | No |
+| POST | `/auth/google/callback` | Google OAuth callback (only with Google OAuth configured) | No |
+| POST | `/auth/google/token_exchange` | Exchange Google token (only with Google OAuth configured) | No |
+| POST | `/auth/google/register` | Register via Google SSO (only with Google OAuth configured; `403` when registration is closed) | No |
 | POST | `/auth/forgot-password/request` | Request forgot password OTP | No |
 | POST | `/auth/forgot-password/verify` | Verify forgot password OTP | No |
 | POST | `/auth/forgot-password/change` | Change password via OTP | No |

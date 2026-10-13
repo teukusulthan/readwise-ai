@@ -37,6 +37,8 @@ def delete_auth_cookies(response: Response):
     response.delete_cookie("token", **options)
 
 
+REGISTRATION_CLOSED_MESSAGE = "Registration is closed."
+
 _FORBIDDEN_MESSAGES = [
     "User doesn't have login access",
     "Account has been expired",
@@ -45,12 +47,32 @@ _FORBIDDEN_MESSAGES = [
 ]
 
 
-@router.get("/google")
+def require_open_registration():
+    """Registration endpoints answer 403 while BE_AUTH_REGISTRATION_OPEN=false."""
+    if not settings.AUTH_REGISTRATION_OPEN:
+        raise HTTPException(
+            status_code=403,
+            detail=BaseResponseFailed(
+                metaData=MetadataFailed(responseCode=403, message=REGISTRATION_CLOSED_MESSAGE)
+            ).dict(),
+        )
+
+
+def google_oauth_configured() -> bool:
+    """The /auth/google/* routes exist only when the Google OAuth client is configured."""
+    return bool(settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET)
+
+
+# Mounted onto `router` (below) only when google_oauth_configured(); otherwise /auth/google/* is a 404.
+google_router = APIRouter()
+
+
+@google_router.get("/google")
 async def auth_google(request: Request, redirect_uri: str):
     return await obj.oauth.google.authorize_redirect(request, redirect_uri=redirect_uri)
 
 
-@router.post("/google/callback")
+@google_router.post("/google/callback")
 async def google_callback(dto: GoogleSSORequest):
     start_time = time()
     try:
@@ -70,7 +92,7 @@ async def google_callback(dto: GoogleSSORequest):
         )
 
 
-@router.post("/google/token_exchange")
+@google_router.post("/google/token_exchange")
 async def google_exchange(token: str):
     start_time = time()
     try:
@@ -90,7 +112,7 @@ async def google_exchange(token: str):
         )
 
 
-@router.post("/google/register")
+@google_router.post("/google/register", dependencies=[Depends(require_open_registration)])
 async def google_register(dto: UserDTO):
     start_time = time()
     try:
@@ -302,7 +324,7 @@ def change_password_verify(otp: str):
         )
 
 
-@router.post("/register")
+@router.post("/register", dependencies=[Depends(require_open_registration)])
 def register(
     dto: RegisterDTO
 ):
@@ -323,7 +345,7 @@ def register(
             ).dict(),
         )
     
-@router.post("/verification")
+@router.post("/verification", dependencies=[Depends(require_open_registration)])
 def verification(otp: str):
     start_time = time()
     try:
@@ -454,3 +476,14 @@ def verify_email(token: str):
             ).dict(),
         )
     
+
+
+def mount_google_routes(target: APIRouter) -> bool:
+    """Add the /google/* routes to `target` when Google OAuth is configured; True when mounted."""
+    if not google_oauth_configured():
+        return False
+    target.include_router(google_router)
+    return True
+
+
+mount_google_routes(router)

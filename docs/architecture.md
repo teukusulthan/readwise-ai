@@ -258,6 +258,12 @@ web: /login, /register (no app shell) → POST /auth/login sets HttpOnly `token`
   likewise stay invisible to real users.
 - Registration: `/auth/register` needs SMTP + Proofy by default (OTP mail, then `POST /auth/verification`).
   `BE_AUTH_EMAIL_VERIFICATION=false` (development only) creates the account at once.
+  `BE_AUTH_REGISTRATION_OPEN=false` closes every registration endpoint (403 "Registration is closed.").
+- Login accepts only accounts with `status: "active"` — both registration paths create them active; anything else is
+  403, checked after the password so a wrong password never reveals the account's state. `emailVerified` is not
+  checked at login (the development path leaves it false).
+- Google OAuth (`/auth/google/*`) is mounted only when `BE_GOOGLE_CLIENT_ID` and `BE_GOOGLE_CLIENT_SECRET` are set;
+  `/auth/google/register` then creates an active, unverified account from the body's profile fields only.
 - Rate limits key the service principal as `service:internal` (valid token only), users as `user:<id>`, else IP.
 
 ### 4.8 MCP server (`apps/mcp/library/`)
@@ -377,9 +383,9 @@ Read-only tools; the server never connects to Postgres, Qdrant or storage, so th
 - Agno returns provider errors as a normal result with `status=ERROR`; `service/llm.py` converts that into a 503 with a short message (bad key / rate limit / unknown model) and logs the details.
 - **Cross-language questions are weak**: an Indonesian question about an English book ranked the wrong chapter first.
 - **Scanned PDFs** are parsed twice: first with OCR off (fast), then — only when that yields no text — once more with OCR on (`BE_DOCLING_OCR_FALLBACK`, default true). OCR is much slower; if it also finds nothing the book fails with "No text could be extracted, even with OCR. …". `BE_DOCLING_DO_OCR=true` turns OCR on for every book (no fallback). **The OCR pass needs a working Docling OCR engine:** with the current lock (docling 2.129.0 + rapidocr 3.10.0, which no longer exposes `PP_OCRV6_LANGS`) Docling finds no engine, so the startup-cached probe reports "no OCR engine", the OCR pass is skipped and scanned PDFs still fail with the original message. rapidocr 3.9.x works with docling, but resolving it upgrades numpy/pandas/opencv, so that pin is a separate dependency decision. A failed probe (e.g. an OCR model download error) is cached too: restart to probe again.
-- **Accounts are opt-in**: local `.env` runs with `BE_JWT_ACTIVE=false` and the web with `VITE_AUTH_ENABLED=false` (no login, owner "local"). Turn both on together (§4.7). The auth cookies are `Secure` (`BE_AUTH_COOKIE_SECURE=true`): browsers accept them on `http://localhost`, but over plain HTTP from another host (e.g. `http://<LAN IP>:3000`) they are dropped — use HTTPS, or `BE_AUTH_COOKIE_SECURE=false` in development only. After login the web calls `GET /auth/validate` and says so if the cookie did not stick.
+- **Accounts are opt-in**: local `.env` (and `.env.example`) runs with `BE_JWT_ACTIVE=false` and the web with `VITE_AUTH_ENABLED=false` (no login, owner "local"). Turn both on together (§4.7). The auth cookies are `Secure` (`BE_AUTH_COOKIE_SECURE=true`): browsers accept them on `http://localhost`, but over plain HTTP from another host (e.g. `http://<LAN IP>:3000`) they are dropped — use HTTPS, or `BE_AUTH_COOKIE_SECURE=false` in development only. After login the web calls `GET /auth/validate` and says so if the cookie did not stick.
 - **One shared library** — books have no owner; only conversations are per user. No roles: every signed-in user can add, edit and delete books.
-- Registration with the default email verification needs working SMTP and a Proofy key; without them use `BE_AUTH_EMAIL_VERIFICATION=false` in development only.
+- Registration with the default email verification needs working SMTP and a Proofy key; without them use `BE_AUTH_EMAIL_VERIFICATION=false` in development only. On a deployment without self-service sign-up set `BE_AUTH_REGISTRATION_OPEN=false` (registration endpoints answer 403; accounts then come from an admin). Login requires `status: "active"`, not `emailVerified`. `/auth/google/register` (mounted only with Google OAuth configured) does not prove ownership of the email — leave Google unconfigured or registration closed where that matters.
 - Docker images exist for all three apps (§9, profile `app`); their builds have not been verified on a host with a working Docker daemon yet.
 - **Ingestion runs in one API process.** Recovery after a restart assumes a single owner of the queue (§4.1).
 
@@ -389,7 +395,7 @@ Read-only tools; the server never connects to Postgres, Qdrant or storage, so th
 
 ```bash
 docker compose up -d                                  # repo root: postgres, qdrant, mongo, redis
-cd apps/backend && cp .env.example .env               # fill BE_JWT_SECRET / BE_SESSION_SECRET (openssl rand -hex 32)
+cd apps/backend && cp .env.example .env               # accounts off (BE_JWT_ACTIVE=false); fill BE_SESSION_SECRET (openssl rand -hex 32)
 uv sync && uv run python api.py --port 8020           # migrations run automatically at startup
 cd apps/web && npm install && npm run dev             # http://localhost:3000
 ```
@@ -427,7 +433,7 @@ Use `--api` for another backend URL and, when JWT is on, `--token <access token>
 
 ## 10. Security and operations summary
 
-- **Auth:** opt-in (`BE_JWT_ACTIVE`); user JWT in HttpOnly cookies, `X-Internal-Token` for system callers (MCP, seed script) — §4.7. Secrets are validated at startup (JWT >= 32 characters, AES key exactly 32). Cookie `Secure` flag: `BE_AUTH_COOKIE_SECURE`.
+- **Auth:** opt-in (`BE_JWT_ACTIVE`, `false` in `.env.example`); only `status: "active"` accounts log in; sign-up can be closed (`BE_AUTH_REGISTRATION_OPEN=false`); Google OAuth routes exist only when configured; user JWT in HttpOnly cookies, `X-Internal-Token` for system callers (MCP, seed script) — §4.7. Secrets are validated at startup (JWT >= 32 characters, AES key exactly 32). Cookie `Secure` flag: `BE_AUTH_COOKIE_SECURE`.
 - **Surface:** only the library routers mount by default; the legacy admin routers and `/monitoring/threadpool` are opt-in (§9 Startup defaults).
 - **Abuse limits:** per-route rate limits and capacity caps with `Retry-After` (`docs/api-spec.md`), request body cap, `X-Forwarded-For` trusted only from `BE_TRUSTED_PROXIES`, an upload size cap and `%PDF-` magic-byte check.
 - **Failure isolation:** Docling parses in a child process with a timeout and optional memory cap; LLM calls have request and first-token timeouts; errors reach clients as short, safe messages.

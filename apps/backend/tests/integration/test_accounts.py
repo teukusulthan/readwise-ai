@@ -164,3 +164,54 @@ async def test_register_without_verification_then_login_owns_conversations(app, 
         assert (await browser.get("/conversation/get-all")).json()["metaData"]["pagination"]["totalElements"] == 1
     with Services.postgres().connection() as conn:
         assert conn.execute("SELECT owner_id FROM conversations").fetchone()["owner_id"] == stored["_id"]
+
+
+async def test_verified_registration_then_login(app, users):
+    """The default flow: the OTP stored by /auth/register, confirmed by /auth/verification, makes an active account."""
+    import hashlib
+    from dto.auth import RegisterOTPDTO
+
+    otp = "654321"
+    account = {"fullname": "Grace Reader", "username": "grace", "email": "grace@accounts.test",
+               "password": "correct horse battery", "phone": "+15550002"}
+    Services.redis().set(f"register-otp:{hashlib.md5(otp.encode()).hexdigest()}",
+                     RegisterOTPDTO.model_construct(otp=otp, **account).model_dump_json(), 60)   # skip the MX check
+    async with _client(app) as client:
+        verified = await client.post("/auth/verification", params={"otp": otp})
+        assert verified.status_code == 200, verified.text
+        stored = users.find_one({"email": "grace@accounts.test"})
+        assert stored["status"] == "active" and stored["emailVerified"] is True
+        login = await client.post("/auth/login", json={"email": "grace", "password": account["password"]})
+        assert login.status_code == 200, login.text
+
+
+async def test_login_refuses_an_account_that_is_not_active(app, users):
+    from util.helper import encrypt
+
+    password = "correct horse battery"
+    for status, email in ((None, "nostatus@accounts.test"), ("inactive", "inactive@accounts.test")):
+        users.insert_one({"_id": email, "email": email, "username": email.split("@")[0], "phone": email,
+                          "fullname": "Not Active", "password": encrypt(password), "status": status})
+    async with _client(app) as client:
+        for email in ("nostatus@accounts.test", "inactive@accounts.test"):
+            refused = await client.post("/auth/login", json={"email": email, "password": password})
+            assert refused.status_code == 403, refused.text
+            assert refused.json()["metaData"]["message"] == "User doesn't have login access"
+            assert "token" not in refused.cookies
+        wrong = await client.post("/auth/login", json={"email": "inactive@accounts.test", "password": "wrong"})
+        assert wrong.status_code == 400 and wrong.json()["metaData"]["message"] == "Incorrect email or password"
+
+
+async def test_closed_registration_still_lets_existing_accounts_log_in(app, users, monkeypatch):
+    monkeypatch.setattr(settings, "AUTH_EMAIL_VERIFICATION", False)
+    account = {"fullname": "Lin Reader", "username": "lin", "email": "lin@accounts.test",
+               "password": "correct horse battery", "phone": "+15550003"}
+    async with _client(app) as client:
+        assert (await client.post("/auth/register", json=account)).status_code == 200
+        monkeypatch.setattr(settings, "AUTH_REGISTRATION_OPEN", False)
+        again = {**account, "username": "lin2", "email": "lin2@accounts.test", "phone": "+15550004"}
+        closed = await client.post("/auth/register", json=again)
+        assert closed.status_code == 403 and closed.json()["metaData"]["message"] == "Registration is closed."
+        assert users.find_one({"email": "lin2@accounts.test"}) is None
+        login = await client.post("/auth/login", json={"email": "lin", "password": account["password"]})
+        assert login.status_code == 200, login.text

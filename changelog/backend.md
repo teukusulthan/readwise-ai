@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Account defaults and registration gates (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/.env.example`, `apps/backend/config/base.py`, `apps/backend/router/auth.py`, `apps/backend/service/auth.py`, `apps/backend/tests/unit/test_auth_registration.py`, `apps/backend/tests/integration/test_accounts.py`, `docs/api/auth.md`, `docs/api-spec.md`, `docs/architecture.md`, `README.md`, `apps/backend/README.md`
+> `.env.example` ships `BE_JWT_ACTIVE=false` (accounts off, matching the web default). `/auth/google/*` is mounted only when `BE_GOOGLE_CLIENT_ID` + `BE_GOOGLE_CLIENT_SECRET` are set, and `/auth/google/register` keeps only profile fields (always active, unverified). New `BE_AUTH_REGISTRATION_OPEN` (default true; false = 403 "Registration is closed." on `/auth/register`, `/auth/verification`, `/auth/google/register`). Login accepts only `status: "active"` accounts, checked after the password.
+
 ### 2026-10-13 · Reconcile docs with shipped work (no sprint) · ✅ Done
 
 **Event:** Task completed

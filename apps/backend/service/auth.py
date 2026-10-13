@@ -43,6 +43,10 @@ import requests
 from authlib.integrations.starlette_client import OAuth
 
 
+# The only account status that may log in.
+ACTIVE_STATUS = "active"
+
+
 # Error messages
 class AuthErrors:
     EMAIL_REQUIRED = "Email cannot be empty"
@@ -162,24 +166,17 @@ class Auth(BaseMongoRepository):
             account_id = account.get("_id")
             self.check_account_lock(account_id)
 
-            expired_date = account.get("expiredDate", None)
-            if expired_date not in [None, "", 0]:
-                current_time = int(datetime.now().timestamp() * 1000)
-                if current_time > expired_date:
-                    raise Exception("Account has been expired")
-
-            account_status = account.get("status")
-            if account_status in ["deleted", "blocked"]:
-                raise Exception(f"Account has been {account_status}")
-
             if validate_password:
-                if not bcrypt.checkpw(
+                if not account.get("password") or not bcrypt.checkpw(
                     dto.password.encode("utf-8"), account["password"].encode("utf-8")
                 ):
                     self.handle_login_fail(account_id)
                     raise Exception(f"Incorrect email or password")
 
                 self.redis.delete(f"login_fail:{account_id}")
+
+            # After the password check, so a wrong password never reveals an account's state.
+            self._validate_account_status(account)
 
         self.collection.update_one(
             {"_id": account["_id"]},
@@ -203,7 +200,18 @@ class Auth(BaseMongoRepository):
         if account:
             raise Exception("Your Account Is Already Registered")
 
-        resp = self.user_service.add(dto)
+        # Profile fields only: the caller never chooses status, permission, group, expiry or verification.
+        resp = self.user_service.add(UserDTO(
+            fullname=dto.fullname,
+            username=dto.username,
+            email=dto.email,
+            phone=dto.phone,
+            password=dto.password,
+            image=dto.image,
+            status=ACTIVE_STATUS,
+            multiLogin=True,
+            emailVerified=False,
+        ))
 
         return resp
 
@@ -465,12 +473,15 @@ class Auth(BaseMongoRepository):
             if current_time > expired_date:
                 raise Exception(AuthErrors.ACCOUNT_EXPIRED)
 
-        # Check account status
+        # Check account status: only "active" accounts log in. Both registration paths
+        # (verify_register_otp and _register_without_verification) create them active.
         account_status = account.get("status")
         if account_status == "deleted":
             raise Exception(AuthErrors.ACCOUNT_DELETED)
         elif account_status == "blocked":
             raise Exception(AuthErrors.ACCOUNT_BLOCKED)
+        elif account_status != ACTIVE_STATUS:
+            raise Exception(AuthErrors.NO_LOGIN_ACCESS)
 
     def _validate_password(self, input_password: str, stored_password: str):
         if not bcrypt.checkpw(
@@ -793,7 +804,7 @@ Jika Anda memiliki pertanyaan atau memerlukan bantuan lebih lanjut, jangan ragu 
             email=dto.email,
             phone=dto.phone,
             password=dto.password,
-            status="active",
+            status=ACTIVE_STATUS,
             multiLogin=True,
             emailVerified=False,
         ))
@@ -812,7 +823,7 @@ Jika Anda memiliki pertanyaan atau memerlukan bantuan lebih lanjut, jangan ragu 
                 email=redis_data.get("email"),
                 phone=redis_data.get("phone"),
                 password=redis_data.get("password"),
-                status="active",
+                status=ACTIVE_STATUS,
                 multiLogin=True,
                 emailVerified=True
             )

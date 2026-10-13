@@ -54,14 +54,19 @@ Login and obtain access token + refresh token. Tokens are stored in HttpOnly coo
 | Status | Description |
 |---|---|
 | `200` | Login successful |
-| `400` | Login failed |
-| `403` | Account expired, deleted, or blocked |
+| `400` | Login failed (unknown account or wrong password — the account's state is never revealed before the password matches) |
+| `403` | Correct password, but the account may not log in: expired, deleted, blocked, or any `status` other than `"active"` ("User doesn't have login access") |
+
+Only accounts with `status: "active"` log in. Both registration paths create active accounts
+(`/auth/verification` with `emailVerified: true`; the development path with `emailVerified: false`); `emailVerified`
+itself is not checked at login. Accounts created through the optional admin `user` router need `status: "active"`.
 
 ---
 
 ### `POST /auth/register`
 
-Register a new account. By default (`BE_AUTH_EMAIL_VERIFICATION=true`) the email is checked (MX + Proofy) and an
+Register a new account. Closed with `BE_AUTH_REGISTRATION_OPEN=false` (`403` "Registration is closed.", as on
+`/auth/verification` and `/auth/google/register`). By default (`BE_AUTH_EMAIL_VERIFICATION=true`) the email is checked (MX + Proofy) and an
 OTP is mailed over SMTP; the account exists only after `POST /auth/verification`. With
 `BE_AUTH_EMAIL_VERIFICATION=false` (development only) the active account is created immediately and no mail is sent.
 
@@ -93,12 +98,13 @@ With `BE_AUTH_EMAIL_VERIFICATION=false`: `"data": { "message": "Account created"
 |---|---|
 | `200` | Registration successful (OTP sent, or account created) |
 | `400` | Invalid input, invalid email, or email / username / phone already taken |
+| `403` | Registration is closed (`BE_AUTH_REGISTRATION_OPEN=false`) |
 
 ---
 
 ### `POST /auth/verification`
 
-Verify registration OTP.
+Verify registration OTP. Creates the account with `status: "active"` and `emailVerified: true`.
 
 **Request Body**
 
@@ -128,6 +134,7 @@ Verify registration OTP.
 |---|---|
 | `200` | Verification successful, user object returned |
 | `400` | Invalid OTP |
+| `403` | Registration is closed (`BE_AUTH_REGISTRATION_OPEN=false`) |
 
 ---
 
@@ -231,6 +238,11 @@ Refresh access token using refresh token.
 
 ---
 
+### Google OAuth (`/auth/google/*`)
+
+The four `/auth/google/*` routes below are **mounted only when both `BE_GOOGLE_CLIENT_ID` and
+`BE_GOOGLE_CLIENT_SECRET` are set**; otherwise they do not exist (`404`). The web app does not use them.
+
 ### `GET /auth/google`
 
 Initiate Google OAuth redirect.
@@ -323,9 +335,16 @@ Exchange a Google token.
 
 ### `POST /auth/google/register`
 
-Register a user via Google SSO.
+Register a user via Google SSO (after `/auth/google/callback` answered `registered: false`).
 
-**Request Body** — `UserDTO` (minimum: `email`, `phone`)
+**Request Body** — `UserDTO` (minimum: `email`, `phone`). Only the profile fields `fullname`, `username`, `email`,
+`phone`, `password`, `image` are used; the account is always created with `status: "active"`,
+`emailVerified: false` and no permission/group/expiry, whatever the body says.
+
+> This endpoint does not itself prove that the caller owns the Google account for `email` — it is the boilerplate
+> flow, available only while Google OAuth is configured and registration is open. Close it with
+> `BE_AUTH_REGISTRATION_OPEN=false` (or leave Google unconfigured) on a public deployment that must not accept
+> unverified sign-ups.
 
 **Response `200`**
 
@@ -349,6 +368,8 @@ Register a user via Google SSO.
 |---|---|
 | `200` | Google registration successful, user object returned |
 | `400` | Registration failed |
+| `403` | Registration is closed (`BE_AUTH_REGISTRATION_OPEN=false`) |
+| `404` | Google OAuth is not configured (route not mounted) |
 
 ---
 
