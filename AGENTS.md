@@ -97,7 +97,7 @@ Use free ports on shared machines; do not stop processes you did not start. Neve
 
 ## Scope and data
 
-The project runs as an MVP: a web app plus a real backend. Use the real database for validated data; mock data (kept inside the web project, see `docs/mock-data.md`) only where data is not yet validated. Ask before introducing new backend services or stores that the stack above does not list.
+The project runs as an MVP: a web app plus a real backend. Use the real database for validated data; mock data (kept inside the web project) only where data is not yet validated. Ask before introducing new backend services or stores that the stack above does not list.
 
 ## Git and docs
 

@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Remove unrelated mock data (no sprint) · ✅ Done
+
+**Event:** Task completed
+**Files:** `docs/mock-data.md` (deleted), `data/mock/mock-sentiment-layanan-publik.json` (deleted), `AGENTS.md`
+> Deleted the unrelated population/sentiment mock docs and data left over from the boilerplate; the library uses real data.
+
 ### 2026-10-13 · Remove unused stubs and Mapbox token (no sprint) · ✅ Done
 
 **Event:** Task completed
