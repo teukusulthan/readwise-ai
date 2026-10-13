@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Docker images for the apps (no sprint) · ✅ Done
+
+**Event:** Task completed
+**Files:** `apps/web/Dockerfile`, `apps/web/.dockerignore`, `apps/web/docker/{default.conf.template,15-cdn-assets.sh}`, `docker-compose.yml`
+> Multi-stage image: `npm ci` (patch-package runs) + `vite build` on node:20, served by nginx-unprivileged 1.27 on 8080. SPA fallback, `/api/v1/apps/` proxied to `BACKEND_UPSTREAM` with the prefix stripped, `/chat/stream` unbuffered with a 1 h read timeout, `/cdn-assets/` proxied to `ICON_CDN_PROXY_TARGET` (404 when unset). `VITE_*` are build args. Compose service `web` (profile `app`, host port 3000). Image build not yet verified (no Docker daemon available).
+
 ### 2026-10-13 · Login explains a rejected session cookie (no sprint) · ✅ Done
 
 **Event:** Files modified

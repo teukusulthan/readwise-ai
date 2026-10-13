@@ -6,6 +6,12 @@ Append-only. Newest entries at the top. Same entry format as [`backend.md`](./ba
 
 ---
 
+### 2026-10-13 · Docker image for the MCP server (no sprint) · ✅ Done
+
+**Event:** Task completed
+**Files:** `apps/mcp/library/Dockerfile`, `apps/mcp/library/.dockerignore`, `docker-compose.yml`
+> Image for the HTTP transport (`MCP_TRANSPORT=http`, 0.0.0.0:8030, non-root, TCP healthcheck); compose service `mcp` (profile `app`) calls the backend service via `LIBRARY_API_URL`. Image build not yet verified (no Docker daemon available).
+
 ### 2026-10-13 · Library MCP server (no sprint) · ✅ Done
 
 **Event:** Task completed

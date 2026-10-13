@@ -372,7 +372,7 @@ Read-only tools; the server never connects to Postgres, Qdrant or storage, so th
 - **Accounts are opt-in**: local `.env` runs with `BE_JWT_ACTIVE=false` and the web with `VITE_AUTH_ENABLED=false` (no login, owner "local"). Turn both on together (§4.7). The auth cookies are `Secure` (`BE_AUTH_COOKIE_SECURE=true`): browsers accept them on `http://localhost`, but over plain HTTP from another host (e.g. `http://<LAN IP>:3000`) they are dropped — use HTTPS, or `BE_AUTH_COOKIE_SECURE=false` in development only. After login the web calls `GET /auth/validate` and says so if the cookie did not stick.
 - **One shared library** — books have no owner; only conversations are per user. No roles: every signed-in user can add, edit and delete books.
 - Registration with the default email verification needs working SMTP and a Proofy key; without them use `BE_AUTH_EMAIL_VERIFICATION=false` in development only.
-- 🛠 Not yet: Docker images for the apps, S3 storage.
+- Docker images exist for all three apps (§9, profile `app`); their builds have not been verified on a host with a working Docker daemon yet. 🛠 Not yet: S3 storage.
 
 ---
 
@@ -386,6 +386,8 @@ cd apps/web && npm install && npm run dev             # http://localhost:3000
 ```
 
 Dev auto-reload is opt-in (`--reload`; the nx `serve` target passes it) and watches only the source packages (`RELOAD_DIRS` in `api.py`): a reload kills indexing jobs running in the API process (and the parse child) (the next startup re-queues them, up to `BE_INGESTION_MAX_ATTEMPTS` claims; after that they are marked failed and need **Reindex**), so editing `tests/`, `scripts/` or writing to `storage/` does not restart the server. After editing `api.py` itself, restart by hand.
+
+**Containers.** `docker compose --profile app up -d --build` also runs `backend` (Python 3.12 slim + uv, one worker, volumes `book-storage` and `hf-cache`), `web` (Vite build behind unprivileged nginx on host port 3000: SPA fallback, `/api/v1/apps/` proxied to the backend with the prefix stripped, SSE unbuffered on `/chat/stream`, `/cdn-assets/` proxied to `ICON_CDN_PROXY_TARGET`) and `mcp` (HTTP transport, port 8030). Compose points the backend at `postgres`/`qdrant`/`mongo`/`redis` by service name; the env files stay git-ignored. Details: README "Running with Docker".
 
 Ports taken by another project? Run the backend on another port and point the web proxy at it in `apps/web/env/.env`:
 `PORT=3001` and `BACKEND_PROXY_TARGET=http://localhost:8021`.

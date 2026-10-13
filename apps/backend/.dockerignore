@@ -1,0 +1,17 @@
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+# Secrets: configuration reaches the container through env vars (compose env_file), never the image.
+.env
+.env.*
+!.env.example
+# Uploaded books and downloaded corpora live in volumes.
+storage
+tests
+Dockerfile
+.dockerignore

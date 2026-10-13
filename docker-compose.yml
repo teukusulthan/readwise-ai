@@ -7,7 +7,13 @@
 # clashing with locally installed instances; override with POSTGRES_PORT / REDIS_PORT.
 # Credentials default to local-dev values and can be overridden from the shell or a
 # root .env (never commit real secrets).
-# Application containers (backend, web, mcp) are added in the Docker phase.
+#
+# Application containers (backend, web, mcp) sit behind the `app` profile, so the command above
+# still starts only the databases:
+#   docker compose --profile app up -d --build
+# They read git-ignored env files (apps/backend/.env, apps/web/env/.env, apps/mcp/library/.env; copy the
+# .env.example next to each) and reach the databases by service name, which overrides the localhost
+# values in those files. See README "Running with Docker".
 
 name: library-rag
 
@@ -77,7 +83,97 @@ services:
       retries: 20
     restart: unless-stopped
 
+  # ---- application containers (profile `app`) ---------------------------------------------------
+
+  backend:
+    profiles: ["app"]
+    build:
+      context: ./apps/backend
+    env_file:
+      - path: ./apps/backend/.env
+        required: false
+    environment:
+      # Service names replace the localhost values of the shared .env. Credentials follow the
+      # POSTGRES_* defaults above; set POSTGRES_PASSWORD / QDRANT_API_KEY in the shell or a root .env.
+      BE_POSTGRES_URI: postgresql://${POSTGRES_USER:-library}:${POSTGRES_PASSWORD:-library}@postgres:5432/${POSTGRES_DB:-library}
+      BE_QDRANT_URL: http://qdrant:6333
+      BE_QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      BE_MONGO_URI: mongodb://mongo:27017
+      BE_REDIS_HOST: redis
+      BE_REDIS_PORT: "6379"
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8020}:8020"
+    volumes:
+      - book-storage:/app/storage
+      - hf-cache:/home/app/.cache/huggingface
+    depends_on:
+      postgres: {condition: service_healthy}
+      qdrant: {condition: service_healthy}
+      mongo: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8020/health', timeout=4).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  web:
+    profiles: ["app"]
+    build:
+      context: ./apps/web
+      args:
+        # Compiled into the bundle at build time (rebuild after changing them).
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+        VITE_AUTH_ENABLED: ${VITE_AUTH_ENABLED:-false}
+        VITE_MAPBOX_TOKEN: ${VITE_MAPBOX_TOKEN:-}
+    env_file:
+      # Runtime: ICON_CDN_PROXY_TARGET (the icon CDN host, never committed). Unset = /cdn-assets/ answers 404.
+      - path: ./apps/web/env/.env
+        required: false
+    environment:
+      BACKEND_UPSTREAM: http://backend:8020
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:8080"
+    depends_on:
+      backend: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  mcp:
+    profiles: ["app"]
+    build:
+      context: ./apps/mcp/library
+    env_file:
+      - path: ./apps/mcp/library/.env
+        required: false
+    environment:
+      # MCP_BEARER_TOKEN (>= 32 chars) and LIBRARY_INTERNAL_TOKEN (= the backend's BE_INTERNAL_TOKEN)
+      # come from the env file; the container refuses to start without a bearer token.
+      LIBRARY_API_URL: http://backend:8020
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8030"
+    ports:
+      - "127.0.0.1:${MCP_PORT:-8030}:8030"
+    depends_on:
+      backend: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket,sys; socket.create_connection(('127.0.0.1', 8030), timeout=4).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
 volumes:
+  book-storage:
+  hf-cache:
   postgres-data:
   qdrant-data:
   mongo-data:

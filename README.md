@@ -91,6 +91,31 @@ All ports bind to 127.0.0.1. Postgres and Redis use 5433/6380 on the host to avo
 
 ---
 
+## Running with Docker
+
+Besides the databases, compose can build and run the three apps behind the `app` profile (plain `docker compose up -d` still starts only the databases).
+
+```bash
+cp apps/backend/.env.example apps/backend/.env            # BE_JWT_SECRET, BE_SESSION_SECRET, BE_LLM_*, BE_ENGINE_EMBEDDING_BASE_URL ...
+cp apps/web/env/.env.example apps/web/env/.env            # ICON_CDN_PROXY_TARGET (icon CDN host; empty = no icons)
+cp apps/mcp/library/.env.example apps/mcp/library/.env    # MCP_BEARER_TOKEN (>= 32 chars), LIBRARY_INTERNAL_TOKEN
+docker compose --profile app up -d --build
+docker compose --profile app ps                           # backend, web, mcp should become "healthy"
+```
+
+| Service | Host URL | Notes |
+|---------|----------|-------|
+| web | http://localhost:3000 (`WEB_PORT`) | nginx: serves the build, proxies `/api/v1/apps/` to the backend (SSE unbuffered), `/cdn-assets/` to `ICON_CDN_PROXY_TARGET` |
+| backend | http://localhost:8020 (`BACKEND_PORT`) | one worker; `BE_POSTGRES_URI`, `BE_QDRANT_URL`, `BE_MONGO_URI`, `BE_REDIS_HOST/PORT` are set by compose to the service names, overriding the localhost values in `.env` |
+| mcp | http://localhost:8030/mcp (`MCP_PORT`) | HTTP transport with bearer token; `LIBRARY_API_URL` points at the backend service |
+
+- Volumes: `book-storage` (uploaded PDFs) and `hf-cache` (tokenizer and Docling models, downloaded on the first parse) survive rebuilds.
+- `VITE_API_BASE_URL`, `VITE_AUTH_ENABLED` and `VITE_MAPBOX_TOKEN` are compiled into the web bundle: set them in the shell or a root `.env` (compose reads that, not `apps/web/env/.env`) and rebuild. Turn `VITE_AUTH_ENABLED=true` on together with `BE_JWT_ACTIVE=true`.
+- The backend `.env` is not copied into the image (`.dockerignore`); it is passed as environment variables. The embedding service host (`BE_ENGINE_EMBEDDING_BASE_URL`) must be reachable from the container.
+- Ports bind to 127.0.0.1. Put TLS in front before exposing them.
+
+---
+
 ## AI Agent System
 
 Rules and skills are loaded on demand via `orchestra.md` files. Load order: `CLAUDE.md` / `AGENTS.md` → `.claude/rules/architecture.md` → domain orchestra (`.claude/skills/orchestra/`) → app `AI_GUIDE.md` → specific skills.

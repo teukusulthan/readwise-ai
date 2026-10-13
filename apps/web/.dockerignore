@@ -1,0 +1,11 @@
+node_modules
+build
+dist
+# Secrets: only env/.env.example may enter the image; real values come in at runtime or as build args.
+env/.env
+env/.env.*
+!env/.env.example
+.git
+*.log
+Dockerfile
+.dockerignore

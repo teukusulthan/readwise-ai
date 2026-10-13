@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Docker images for the apps (no sprint) · ✅ Done
+
+**Event:** Task completed
+**Files:** `apps/backend/Dockerfile`, `apps/backend/.dockerignore`, `docker-compose.yml`, `docs/architecture.md`, `README.md`
+> Multi-stage image (python:3.12-slim-bookworm, uv 0.13.0 binary, `uv sync --frozen --no-dev`, CPU-only torch as locked, libmagic1/libgomp1/libglib2.0-0), non-root uid 10001, one worker, no reload, volumes for `storage/` and the Hugging Face cache, HTTP healthcheck on `/health`. Compose service `backend` (profile `app`) points at the databases by service name. Image build not yet verified (no Docker daemon available); Dockerfile passes hadolint.
+
 ### 2026-10-13 · Auth cookies: `BE_AUTH_COOKIE_SECURE` (no sprint) · ✅ Done
 
 **Event:** Files modified
