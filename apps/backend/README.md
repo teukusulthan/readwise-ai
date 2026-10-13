@@ -38,7 +38,7 @@ cp .env.example .env
 - **Every key must carry the `BE_` prefix** (`BE_MONGO_URI`, `BE_JWT_SECRET`, …). Unprefixed keys are ignored with a warning.
 - Code reads them unprefixed: `BE_MONGO_URI` → `settings.MONGO_URI` (`config/base.py`).
 - Empty values for optional settings mean "unset".
-- Fill at least `BE_JWT_SECRET` and `BE_SESSION_SECRET` (`openssl rand -hex 32`, two different values). `BE_ENC_SECRET` must be 16/24/32 characters if `BE_ENC_ACTIVE=true`.
+- Accounts are off by default (`BE_JWT_ACTIVE=false`: no login, every caller is the owner "local"). To turn them on, set `BE_JWT_ACTIVE=true` with a `BE_JWT_SECRET` of at least 32 characters, together with the web's `VITE_AUTH_ENABLED=true`. Fill `BE_SESSION_SECRET` (`openssl rand -hex 32`, different from the JWT secret). `BE_ENC_SECRET` must be 16/24/32 characters if `BE_ENC_ACTIVE=true`.
 - The `.env.example` defaults match the compose stack.
 
 ## 4) Run the API

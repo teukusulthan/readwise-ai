@@ -109,7 +109,7 @@ All ports bind to 127.0.0.1. Postgres and Redis use 5433/6380 on the host to avo
 Besides the databases, compose can build and run the three apps behind the `app` profile (plain `docker compose up -d` still starts only the databases).
 
 ```bash
-cp apps/backend/.env.example apps/backend/.env            # BE_JWT_SECRET, BE_SESSION_SECRET, BE_LLM_*, BE_ENGINE_EMBEDDING_BASE_URL ...
+cp apps/backend/.env.example apps/backend/.env            # BE_SESSION_SECRET, BE_LLM_*, BE_ENGINE_EMBEDDING_BASE_URL ... (accounts off)
 cp apps/web/env/.env.example apps/web/env/.env            # ICON_CDN_PROXY_TARGET (icon CDN host; empty = no icons)
 cp apps/mcp/library/.env.example apps/mcp/library/.env    # MCP_BEARER_TOKEN (>= 32 chars), LIBRARY_INTERNAL_TOKEN
 docker compose --profile app up -d --build
@@ -123,7 +123,7 @@ docker compose --profile app ps                           # backend, web, mcp sh
 | mcp | http://localhost:8030/mcp (`MCP_PORT`) | HTTP transport with bearer token; `LIBRARY_API_URL` points at the backend service |
 
 - Volumes: `book-storage` (uploaded PDFs) and `hf-cache` (tokenizer and Docling models, downloaded on the first parse) survive rebuilds.
-- `VITE_API_BASE_URL` and `VITE_AUTH_ENABLED` are compiled into the web bundle: set them in the shell or a root `.env` (compose reads that, not `apps/web/env/.env`) and rebuild. Turn `VITE_AUTH_ENABLED=true` on together with `BE_JWT_ACTIVE=true`.
+- `VITE_API_BASE_URL` and `VITE_AUTH_ENABLED` are compiled into the web bundle: set them in the shell or a root `.env` (compose reads that, not `apps/web/env/.env`) and rebuild. Accounts are off by default (`BE_JWT_ACTIVE=false` in `apps/backend/.env.example`, `VITE_AUTH_ENABLED=false`); turn `VITE_AUTH_ENABLED=true` on together with `BE_JWT_ACTIVE=true` and a `BE_JWT_SECRET` of at least 32 characters (the backend refuses to start otherwise).
 - The backend `.env` is not copied into the image (`.dockerignore`); it is passed as environment variables. The embedding service host (`BE_ENGINE_EMBEDDING_BASE_URL`) must be reachable from the container.
 - Ports bind to 127.0.0.1. Put TLS in front before exposing them.
 
