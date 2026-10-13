@@ -12,8 +12,8 @@ expected book and has a heading matching the expected pattern. It prints, per ca
 the rank of the first matching passage, then hit@k over all cases.
 
     cd apps/backend
-    uv run scripts/eval_retrieval.py                          # http://127.0.0.1:8025, top 8
-    uv run scripts/eval_retrieval.py --api http://localhost:8021 --top-k 5 -v
+    uv run scripts/eval_retrieval.py                          # http://127.0.0.1:8020, top 8
+    uv run scripts/eval_retrieval.py --api http://localhost:8020 --top-k 5 -v
 
 To compare two versions of the retrieval code, run it against each and compare the output.
 Cases whose book is not in the library (or not indexed yet) are reported as "skip".
@@ -77,7 +77,7 @@ def indexed_titles(client: httpx.Client) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--api", default="http://127.0.0.1:8025", help="backend base URL")
+    parser.add_argument("--api", default="http://127.0.0.1:8020", help="backend base URL")
     parser.add_argument("--top-k", type=int, default=8, help="passages per question (1-20)")
     parser.add_argument("-v", "--verbose", action="store_true", help="print every retrieved passage")
     args = parser.parse_args()

@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Reconcile docs with shipped work (no sprint) · ✅ Done
+
+**Event:** Task completed
+**Files:** `docs/architecture.md`, `docs/api-spec.md`, `README.md`, `apps/backend/.env.example`, `apps/backend/scripts/eval_retrieval.py`, `apps/backend/scripts/seed_gutenberg.py`
+> Architecture and API spec now match the shipped behaviour (timeouts, 503/409/429 contracts, opt-in monitoring router, security and CI summary, remaining work); ENC secret documented as exactly 32 characters; script examples use the default port 8020.
+
 ### 2026-10-13 · Continuous integration (no sprint) · ✅ Done
 
 **Event:** Task completed

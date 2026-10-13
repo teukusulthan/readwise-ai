@@ -21,7 +21,7 @@ with the same title get the PDF attached.
     uv run scripts/seed_gutenberg.py --only 11 84   # just these Gutenberg ids
     uv run scripts/seed_gutenberg.py --internal-token "$TOKEN"   # BE_JWT_ACTIVE=true: the service token
 
-Needs the backend running (default http://localhost:8021, override with --api) and Google Chrome / Chromium.
+Needs the backend running (default http://localhost:8020, override with --api) and Google Chrome / Chromium.
 Books are queued shortest first, so the first ones become searchable within minutes.
 """
 
@@ -225,7 +225,7 @@ class Library:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--api", default="http://localhost:8021", help="backend base URL")
+    parser.add_argument("--api", default="http://localhost:8020", help="backend base URL")
     parser.add_argument("--token", default=None, help="JWT bearer token (only if BE_JWT_ACTIVE=true)")
     parser.add_argument("--internal-token", default=None,
                         help="service token sent as X-Internal-Token (the backend's BE_INTERNAL_TOKEN; "

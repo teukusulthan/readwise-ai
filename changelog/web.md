@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Refresh web README and AI guide (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/web/README.md`, `apps/web/AI_GUIDE.md`, `apps/web/env/.env.example`
+> Removed stale service worker, App.tsx, Mapbox, data-display and dynamic-filter mentions; folder trees and env keys match the code.
+
 ### 2026-10-13 · Remove unrelated mock data (no sprint) · ✅ Done
 
 **Event:** Task completed

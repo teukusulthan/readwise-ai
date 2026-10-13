@@ -2,7 +2,17 @@
 
 An AI assistant for a personal/team book library: upload PDF books, extract → chunk → embed → index their content, search semantically across books, ask questions about one or many books, and receive **streaming answers with source citations**. Library capabilities are also exposed to other agents through an **MCP server**.
 
-Contributor and agent guidance lives in [`AGENTS.md`](AGENTS.md); the architecture is described in [`docs/architecture.md`](docs/architecture.md).
+## Features
+
+- **Catalog:** add books by hand, import metadata from Open Library, edit and delete them.
+- **Upload and indexing:** upload one or several PDFs; they are parsed (Docling, in a separate process), chunked, embedded and indexed in the background, with retry, resume after a restart and an OCR fallback for scanned files when an OCR engine is available.
+- **Semantic search:** a search page returns passages with book, section and page; each result opens the PDF at that page.
+- **Ask:** streaming answers with numbered citations that open the PDF at the cited page, safe Markdown rendering, resumable and stoppable answers, and saved conversations. Facts from the model's own knowledge are labelled and never cited.
+- **Accounts (optional):** login and registration, with conversations private per user (`BE_JWT_ACTIVE` + `VITE_AUTH_ENABLED`). Off by default for local use.
+- **MCP server:** read-only library tools for other agents, over the backend REST API.
+- **Docker and CI:** compose profile that builds and runs backend, web and MCP; a GitHub Actions workflow runs the tests.
+
+Contributor and agent guidance lives in [`AGENTS.md`](AGENTS.md). How it works, where the code lives and what is still open: [`docs/architecture.md`](docs/architecture.md). Endpoints: [`docs/api-spec.md`](docs/api-spec.md).
 
 ---
 
@@ -14,7 +24,7 @@ Contributor and agent guidance lives in [`AGENTS.md`](AGENTS.md); the architectu
 | Relational DB | PostgreSQL 16 (`pgvector/pgvector:pg16` image) — books, chunks, processing status |
 | Vector DB | Qdrant (pgvector is a later alternative behind a `VectorStore` interface) |
 | Legacy stores | MongoDB + Redis — only for the boilerplate auth/user/group/permission/role/upload modules |
-| Object storage | S3-compatible (local server TBD) |
+| File storage | Local disk (`BE_BOOK_STORAGE_DIR`, default `apps/backend/storage/books/`); S3 later |
 | Embeddings | Company TEI service — `Qwen3-Embedding-0.6B`, 1024-dim (`BE_ENGINE_EMBEDDING_*`) |
 | LLM access | LiteLLM (provider/model via env) |
 | Agent / RAG | Agno, running inside the backend service layer |
@@ -30,12 +40,14 @@ Not used: Supabase, Rust/Axum, mobile (Flutter/React Native), the be-python `age
 ## Layout
 
 ```
-library-rag/
+readwise-ai/
 ├── apps/
 │   ├── backend/      # FastAPI API (api.py entry, uv-managed)
 │   ├── web/          # React + Vite web app
 │   └── mcp/library/  # FastMCP server exposing the library to agents (stdio / HTTP)
-├── docs/             # API spec + database schema registries
+├── docs/             # architecture, API spec, database schema
+├── docker-compose.yml  # databases, plus the apps behind the `app` profile
+├── .github/workflows/  # CI
 ├── sprint/           # Sprint planning (sprint-builder)
 ├── brief/            # Project brief (brief-builder) — optional
 ├── changelog/        # Per-stack changelogs
@@ -84,9 +96,11 @@ uv sync && uv run python server.py      # stdio; HTTP + bearer token: see apps/m
 | MongoDB | localhost:27017 |
 | Redis | localhost:6380 |
 
+**Changing ports.** The defaults are backend 8020 and web 3000. If one is taken, start the backend with another `--port` (for example `uv run python api.py --port 8021`) and set, in `apps/web/env/.env` (git-ignored; copy `env/.env.example`), `PORT=<web port>` and `BACKEND_PROXY_TARGET=http://localhost:<backend port>`. For Docker use `WEB_PORT` / `BACKEND_PORT`.
+
 All ports bind to 127.0.0.1. Postgres and Redis use 5433/6380 on the host to avoid clashing with local installs (override with `POSTGRES_PORT` / `REDIS_PORT`).
 
-**Object storage:** not in compose yet. MinIO stopped publishing community Docker images, so pick an S3-compatible store (or a local volume) before the book-upload phase. The backend already talks S3 through `util/s3_filesystem.py`.
+**File storage:** uploaded PDFs are kept on local disk (`apps/backend/storage/books/<book_id>.pdf`, set by `BE_BOOK_STORAGE_DIR`; the Docker setup uses the `book-storage` volume). S3-compatible storage is a later option.
 
 ---
 
@@ -109,7 +123,7 @@ docker compose --profile app ps                           # backend, web, mcp sh
 | mcp | http://localhost:8030/mcp (`MCP_PORT`) | HTTP transport with bearer token; `LIBRARY_API_URL` points at the backend service |
 
 - Volumes: `book-storage` (uploaded PDFs) and `hf-cache` (tokenizer and Docling models, downloaded on the first parse) survive rebuilds.
-- `VITE_API_BASE_URL`, `VITE_AUTH_ENABLED` and `VITE_MAPBOX_TOKEN` are compiled into the web bundle: set them in the shell or a root `.env` (compose reads that, not `apps/web/env/.env`) and rebuild. Turn `VITE_AUTH_ENABLED=true` on together with `BE_JWT_ACTIVE=true`.
+- `VITE_API_BASE_URL` and `VITE_AUTH_ENABLED` are compiled into the web bundle: set them in the shell or a root `.env` (compose reads that, not `apps/web/env/.env`) and rebuild. Turn `VITE_AUTH_ENABLED=true` on together with `BE_JWT_ACTIVE=true`.
 - The backend `.env` is not copied into the image (`.dockerignore`); it is passed as environment variables. The embedding service host (`BE_ENGINE_EMBEDDING_BASE_URL`) must be reachable from the container.
 - Ports bind to 127.0.0.1. Put TLS in front before exposing them.
 

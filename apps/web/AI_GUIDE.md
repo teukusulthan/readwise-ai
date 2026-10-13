@@ -101,8 +101,8 @@ New page needed?
 │                                 + add to routes/main.routes.tsx
 │                                 + add menu entry unless route is explicitly hidden
 ├─ Admin-only page              → src/pages/administrator/{module}/
-│                                 + add to routes/admin.routes.tsx
-│                                 + add admin menu entry unless route is explicitly hidden
+│                                 + add an admin route file (guarded by RoleGuard) and an
+│                                   admin menu entry; none exists yet
 └─ Auth page                    → src/pages/auth/ + add to routes/auth.routes.tsx
 ```
 
@@ -160,23 +160,21 @@ src/
 ├── components/
 │   ├── layouts/            → AppHeader, AppSidebar, AppLayout
 │   ├── ui/                 → shadcn/ui primitives; preserve behavior, align variants to DESIGN.md
-│   └── wrappers/           → PerfectScrollArea (exists), EChart, Mapbox wrappers
+│   └── wrappers/           → PerfectScrollArea (exists); add other 3rd-party adapters here
 ├── config/
 │   ├── menu/               → app.menu.ts, administrator.menu.ts
 │   ├── query-client.ts     → Shared TanStack QueryClient (mounted in main.tsx)
 │   └── env.ts              → Typed env accessor — consume `env.*` here, never raw `import.meta.env.*` in components
 ├── hooks/                  → Custom React hooks
-├── modules/
-│   ├── data-display/       → Reusable DataTable / DataList (use this for lists)
-│   ├── dynamic-filter/     → Filter state management (URL, global, inter-widget)
-│   └── dynamic-widget/     → Config-driven dashboard widgets (chart, stat, list, table, card)
+├── features/
+│   ├── auth/               → login / register forms, schemas, hooks
+│   └── library/            → books, catalog, chat, search, upload (the app's domain)
 ├── pages/                  → Route-level page components
-│   ├── auth/               → Login, etc.
-│   └── dashboard/
+│   ├── auth/               → LoginPage, RegisterPage
+│   └── library/            → CatalogPage, BookDetailPage, SearchPage, AskPage
 ├── routes/                 → React Router config
 │   ├── index.tsx           → Root router
-│   ├── main.routes.tsx     → Protected app routes
-│   ├── admin.routes.tsx    → Admin routes
+│   ├── main.routes.tsx     → App routes (library pages)
 │   ├── auth.routes.tsx     → Public auth routes
 │   └── guards/             → AuthGuard, RoleGuard
 ├── services/               → All API calls live here
@@ -184,7 +182,7 @@ src/
 │   ├── api-endpoints.ts        → Real API path constants
 │   ├── api-factory.service.ts  → apiRequests helpers (get/post/put/patch/delete/upload) — resolve to the `ApiResponse<T>` envelope ({ metaData, data })
 │   ├── auth.service.ts
-│   ├── api-factory-crud.service.ts → Generic CRUD factory (reuse for standard modules)
+│   ├── book / chat / conversation / search .service.ts → library API calls
 │   ├── mock-client.ts          → fetch wrapper for public/data/ (POC only, created once)
 │   ├── mock-endpoints.ts       → Mock file path constants (add entry per mock file)
 │   └── mock.service.ts         → mockRequest() helper — used by all domain services in POC
@@ -192,7 +190,7 @@ src/
 ├── styles/                 → theme.css, variables.css, components.css
 ├── types/
 │   └── *.d.ts              → TypeScript .d.ts definitions
-└── utils/                  → cn, date-formatter, icon-renderer
+└── utils/                  → cn, icon-renderer, auth-redirect
 ```
 
 ## 🗂️ Mock Data
@@ -383,36 +381,27 @@ export function SentimentPage() {
 21. ❌ **Put `.env` at app root** — env files live in `env/` subfolder (`env/.env`, `env/.env.example`, etc.)
 22. ❌ **Call `import.meta.env.*` directly in components** — always go through `src/config/env.ts`
 23. ❌ **Add key to `.env` without updating `.env.example`** — always sync both files
-24. ❌ **Custom filter component outside `modules/dynamic-filter/`** — use the 18 built-in components; never build a filter from scratch
-25. ❌ **Filter state in a domain store** (`useLogStore.filter`, `useAlertStore.filter`, etc.) — filter state must live in the Zustand filter store (`modules/dynamic-filter`) only
-26. ❌ **Filter callback prop** (`onFilterChange`) — use `useFilterEmitter`; never pass filter values up via a callback prop
-27. ❌ **Writing filter code without `{page}.filter-map.ts`** — this file is required before any filter component is written
-28. ❌ **Hardcode brand values in `index.html`** — use `{{PLACEHOLDER}}` tokens; replace all when bootstrapping a new app (see `reactjs-seo-html` skill)
-29. ❌ **Use `react-helmet` for static app-level meta tags** — static SEO belongs in `index.html` only; `usePageTitle` handles per-page `document.title` at runtime
-30. ❌ **Define helper/util functions inside a `.tsx` component file** — extract to `src/utils/` (global) or `features/{domain}/{name}/utils/` (domain)
-31. ❌ **Define types or interfaces inside a `.tsx` component file** — extract to `src/types/` (global) or `features/{domain}/{name}/types/` (domain)
-32. ❌ **Define constants, enums, or label maps inside a `.tsx` component file** — extract to `src/config/constants.ts` (global) or `features/{domain}/{name}/constants/`
-33. ❌ **Define column defs, chart options, or filter config inside a `.tsx` component file** — extract to `features/{domain}/{name}/config/` or `pages/{page}/{name}.config.ts`
-34. ❌ **Put mock/fixture data arrays inside a component file** — use `public/data/*.json` (POC) or `features/{domain}/{name}/mocks/` (local fixtures)
-35. ❌ **Put domain-specific utils/constants in `src/utils/` or `src/config/`** — only truly cross-domain, generic helpers belong at the global level
-36. ❌ **Hand-write a shadcn primitive from scratch** when `src/components/ui/` doesn't have it — install via `npx shadcn@latest add <name>` first, then wire tokens to `DESIGN.md`
-37. ❌ **Run shadcn CLI at repo root** — always run it inside the target app folder (`apps/{app}/`)
-38. ❌ **Create `parts/` or `hooks/` subfolders inside `pages/{page}/`** — a page folder contains exactly one file (`{NamePage}.tsx`); all supporting code goes into `src/features/{domain}/{feature}/`
-39. ❌ **Skip creating a feature folder because the code is "only used by one page"** — always scaffold under `features/{domain}/`; there is no `pages/` subfolder fallback
+24. ❌ **Hardcode brand values in `index.html`** — use `{{PLACEHOLDER}}` tokens; replace all when bootstrapping a new app (see `reactjs-seo-html` skill)
+25. ❌ **Use `react-helmet` for static app-level meta tags** — static SEO belongs in `index.html` only; `usePageTitle` handles per-page `document.title` at runtime
+26. ❌ **Define helper/util functions inside a `.tsx` component file** — extract to `src/utils/` (global) or `features/{domain}/{name}/utils/` (domain)
+27. ❌ **Define types or interfaces inside a `.tsx` component file** — extract to `src/types/` (global) or `features/{domain}/{name}/types/` (domain)
+28. ❌ **Define constants, enums, or label maps inside a `.tsx` component file** — extract to `src/config/constants.ts` (global) or `features/{domain}/{name}/constants/`
+29. ❌ **Define column defs, chart options, or filter config inside a `.tsx` component file** — extract to `features/{domain}/{name}/config/` or `pages/{page}/{name}.config.ts`
+30. ❌ **Put mock/fixture data arrays inside a component file** — use `public/data/*.json` (POC) or `features/{domain}/{name}/mocks/` (local fixtures)
+31. ❌ **Put domain-specific utils/constants in `src/utils/` or `src/config/`** — only truly cross-domain, generic helpers belong at the global level
+32. ❌ **Hand-write a shadcn primitive from scratch** when `src/components/ui/` doesn't have it — install via `npx shadcn@latest add <name>` first, then wire tokens to `DESIGN.md`
+33. ❌ **Run shadcn CLI at repo root** — always run it inside the target app folder (`apps/{app}/`)
+34. ❌ **Create `parts/` or `hooks/` subfolders inside `pages/{page}/`** — a page folder contains exactly one file (`{NamePage}.tsx`); all supporting code goes into `src/features/{domain}/{feature}/`
+35. ❌ **Skip creating a feature folder because the code is "only used by one page"** — always scaffold under `features/{domain}/`; there is no `pages/` subfolder fallback
 
 ## 💡 Pro Tips
 
-1. **`api-factory-crud.service.ts` is generic** — reuse `createResourceService` for standard CRUD before writing new service
-2. **`api-factory.service.ts`** — use `apiRequests.get/post/put/patch/delete/upload` directly in TanStack Query hooks; don't call `apiClient` manually
-3. **TanStack Query is the default for API data** — `useQuery` in hooks, never store responses in Zustand
-4. **XState for workflow/process state** — any feature with explicit transitions or approval steps; read `reactjs-xstate` skill first
-5. **`modules/data-display/`** — use this for any list/table view, don't rebuild
-6. **`modules/dynamic-filter/`** — **MANDATORY** for all filter requirements. 18 ready-to-use components, centralized Zustand store, 6 filter types (URL / global / partial / dependent / use-as-filter / exclude-self). Read the `reactjs-dynamic-filter` skill BEFORE writing any filter code. Never build a custom filter component outside this folder.
-7. **`modules/dynamic-widget/`** — widget dashboard config-driven; lihat `SKILL.md` dan `REFERENCE.md` di dalamnya
-8. **`modules/FILTER_WIDGET_INTEGRATION.md`** — panduan interaksi filter ↔ widget dalam satu halaman
-9. **`RoleGuard` + `AuthGuard`** are already built — use them for protected routes
-10. **Mock layer mirrors real API layer** — `mock-client` / `mock-endpoints` / `mock.service` swap out cleanly for `api-client` / `api-endpoints` / `api-factory.service` when graduating from POC to MVP
-11. **shadcn primitive missing from `src/components/ui/`?** Install it first: `npx shadcn@latest add <name>` (run from inside `apps/{app}/`), then align `cva` variants to active `DESIGN.md` before using it
+1. **`api-factory.service.ts`** — use `apiRequests.get/post/put/patch/delete/upload` directly in TanStack Query hooks; don't call `apiClient` manually
+2. **TanStack Query is the default for API data** — `useQuery` in hooks, never store responses in Zustand
+3. **XState for workflow/process state** — any feature with explicit transitions or approval steps; read `reactjs-xstate` skill first
+4. **`RoleGuard` + `AuthGuard`** are already built — use them for protected routes
+5. **Mock layer mirrors real API layer** — `mock-client` / `mock-endpoints` / `mock.service` swap out cleanly for `api-client` / `api-endpoints` / `api-factory.service` when graduating from POC to MVP
+6. **shadcn primitive missing from `src/components/ui/`?** Install it first: `npx shadcn@latest add <name>` (run from inside `apps/{app}/`), then align `cva` variants to active `DESIGN.md` before using it
 
 ## 📞 Quick Commands
 

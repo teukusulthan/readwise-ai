@@ -1,6 +1,6 @@
 # RAG Book Library — Application Architecture
 
-> Describes what is **built and verified** as of 2026-10-09. Items marked **🛠 Not yet** are designed but not implemented.
+> Describes what is built as of 2026-10-13. What is still open is listed in §11.
 > Stack policy: [`AGENTS.md`](../AGENTS.md) · Endpoints: [`docs/api-spec.md`](./api-spec.md) · Tables: [`docs/database-schema.md`](./database-schema.md)
 
 ---
@@ -22,12 +22,14 @@ Every book has an `ingestion_status`. **Only `indexed` books are searched or use
 ## 2. Monorepo layout
 
 ```
-library-rag/
+readwise-ai/
 ├── apps/
 │   ├── backend/          FastAPI service (Python 3.12, uv)
 │   ├── web/              React 18 + TypeScript + Vite
 │   └── mcp/library/      FastMCP server over the backend REST API (stdio / HTTP)
 ├── docker-compose.yml    PostgreSQL (pgvector image), Qdrant, MongoDB, Redis — 127.0.0.1 only
+├── .github/workflows/    CI (backend, web, MCP)
+├── nx/                   Nx runner (`npm run dev` starts backend + web)
 └── docs/                 this file, api-spec.md, database-schema.md
 ```
 
@@ -45,7 +47,7 @@ library-rag/
      ├── PostgreSQL ........ books table (metadata + ingestion status)      psycopg 3 pool
      ├── Qdrant ............ book_chunks collection (vectors + chunk text)   qdrant-client
      ├── Embedding service . company TEI, Qwen3-Embedding-0.6B, 1024-dim     httpx
-     ├── LLM ............... Agno Agent → LiteLLM → provider (key pending)    agno, litellm
+     ├── LLM ............... Agno Agent → LiteLLM → provider (set by env)       agno, litellm
      ├── Open Library ...... book metadata import                            httpx
      ├── Local disk ........ uploaded PDFs: storage/books/<book_id>.pdf
      └── MongoDB + Redis ... existing boilerplate auth/user modules only
@@ -178,6 +180,18 @@ words. Answers render as safe Markdown (`react-markdown` + `remark-gfm`, no raw 
 images shown as alt text) with `[n]` citation chips inside paragraphs, lists and tables. A visually hidden live
 region announces "Answer ready" / "Answer stopped" once per turn (errors are spoken by the answer's alert); the streaming text is not a live region.
 
+### 4.4 Catalog
+
+```
+POST /book/add · PUT /book/update · POST /book/get-all · GET /book/get-one · DELETE /book/delete
+GET  /book/lookup?q=   → Open Library search (candidates with ISBN)
+POST /book/import      → Open Library by ISBN → books row, status 'none' (metadata only)
+Duplicates prevented by unique indexes on isbn, file_sha256, (metadata_source, external_id).
+Delete: one guarded DELETE … WHERE id AND ingestion_status NOT IN ('queued','processing') (409 while
+indexing, 404 if missing) → Qdrant points → PDF file. Search only uses books in the catalog, so a
+deleted book's points are never returned; the worker drops points of a book deleted under it.
+```
+
 ### 4.5 Chat history (saved conversations)
 
 ```
@@ -246,20 +260,6 @@ web: /login, /register (no app shell) → POST /auth/login sets HttpOnly `token`
   `BE_AUTH_EMAIL_VERIFICATION=false` (development only) creates the account at once.
 - Rate limits key the service principal as `service:internal` (valid token only), users as `user:<id>`, else IP.
 
-### 4.4 Catalog
-
-```
-POST /book/add · PUT /book/update · POST /book/get-all · GET /book/get-one · DELETE /book/delete
-GET  /book/lookup?q=   → Open Library search (candidates with ISBN)
-POST /book/import      → Open Library by ISBN → books row, status 'none' (metadata only)
-Duplicates prevented by unique indexes on isbn, file_sha256, (metadata_source, external_id).
-Delete: one guarded DELETE … WHERE id AND ingestion_status NOT IN ('queued','processing') (409 while
-indexing, 404 if missing) → Qdrant points → PDF file. Search only uses books in the catalog, so a
-deleted book's points are never returned; the worker drops points of a book deleted under it.
-```
-
----
-
 ### 4.8 MCP server (`apps/mcp/library/`)
 
 ```
@@ -284,6 +284,11 @@ Read-only tools; the server never connects to Postgres, Qdrant or storage, so th
 | `config/base.py` | All settings (`BE_*` in `.env`): storage, chunking, Docling, retrieval, LLM, Open Library |
 | `migrations/001_create_books.sql` | `books` table + unique/status indexes |
 | `migrations/002_create_conversations.sql` | `conversations` + `conversation_messages` (chat history) |
+| `migrations/003_ingestion_attempts.sql`, `004_conversation_owner.sql` | `books.ingestion_attempts` (resume cap); `conversations.owner_id` (per-user history) |
+| `auth/principal.py`, `auth/auth_bearer.py` | Who is calling: user, service token or "local" (§4.7) |
+| `middleware/route_limits.py`, `middleware/body_limit.py`, `util/client_ip.py` | Per-route rate limits, request body cap, trusted-proxy client IP |
+| `config/routers.py` | Which routers mount by default (§9 Startup defaults) |
+| `service/book_mentions.py` | Finds books named in a question |
 | `util/migrate.py` | Migration runner (`uv run python -m util.migrate`), advisory-locked, idempotent |
 | `service/book_repository.py` | All SQL for `books` (parameterized; whitelisted columns) |
 | `dto/book.py`, `dto/search.py`, `dto/chat.py` | Request validation (ISBN checksum, lengths, URLs) |
@@ -311,11 +316,14 @@ Read-only tools; the server never connects to Postgres, Qdrant or storage, so th
 
 | Path | Role |
 |---|---|
-| `pages/library/CatalogPage.tsx`, `BookDetailPage.tsx`, `AskPage.tsx` | Thin route pages |
-| `routes/main.routes.tsx` | `/books`, `/books/:id`, `/ask/:conversationId?` (full-height route via `handle.fullHeight`; `/` → `/books`) |
-| `config/menu/app.menu.ts` | Sidebar entries (Catalog, Ask) |
+| `pages/library/CatalogPage.tsx`, `BookDetailPage.tsx`, `SearchPage.tsx`, `AskPage.tsx`; `pages/auth/LoginPage.tsx`, `RegisterPage.tsx` | Thin route pages |
+| `routes/main.routes.tsx` | `/books`, `/books/:id`, `/search`, `/ask/:conversationId?`, `/login`, `/register` (full-height route via `handle.fullHeight`; `/` → `/books`) |
+| `config/menu/app.menu.ts` | Sidebar entries (Catalog, Search, Ask) |
 | `services/book.service.ts`, `search.service.ts`, `chat.service.ts`, `conversation.service.ts`, `api-endpoints.ts` | API calls via `apiRequests` |
 | `features/library/catalog/*` | Catalog grid, search, filters, pagination, import/add dialogs |
+| `features/library/search/*` | Passage search page: query box, book scope, result cards with book, section and page; each result opens the PDF at its page |
+| `features/library/utils/book-file.ts` | Builds the `GET /book/file?id=…#page=N` link used by search results and citation chips (open at the cited page) |
+| `features/auth/*`, `routes/guards/AuthGuard.tsx`, `stores/useAuthStore.ts` | Login/register forms and the sign-in guard (only with `VITE_AUTH_ENABLED=true`) |
 | `features/library/books/*` | Detail view, document panel (upload/status polling/reindex), delete |
 | `features/library/chat/*` | Chatbot page (`ChatView`): conversation sidebar (grouped by date, rename/delete), message thread (`UserMessage`, `AssistantMessage` with citation chips + collapsible sources), composer pinned at the bottom (Enter to send, book scope picker, Stop) |
 | `services/sse-client.ts` + `features/library/chat/hooks/useAskStream.ts` | SSE over `fetch` POST (EventSource can't POST); status → sources → deltas → done/error, abortable (Stop) |
@@ -371,7 +379,8 @@ Read-only tools; the server never connects to Postgres, Qdrant or storage, so th
 - **Accounts are opt-in**: local `.env` runs with `BE_JWT_ACTIVE=false` and the web with `VITE_AUTH_ENABLED=false` (no login, owner "local"). Turn both on together (§4.7). The auth cookies are `Secure` (`BE_AUTH_COOKIE_SECURE=true`): browsers accept them on `http://localhost`, but over plain HTTP from another host (e.g. `http://<LAN IP>:3000`) they are dropped — use HTTPS, or `BE_AUTH_COOKIE_SECURE=false` in development only. After login the web calls `GET /auth/validate` and says so if the cookie did not stick.
 - **One shared library** — books have no owner; only conversations are per user. No roles: every signed-in user can add, edit and delete books.
 - Registration with the default email verification needs working SMTP and a Proofy key; without them use `BE_AUTH_EMAIL_VERIFICATION=false` in development only.
-- Docker images exist for all three apps (§9, profile `app`); their builds have not been verified on a host with a working Docker daemon yet. 🛠 Not yet: S3 storage.
+- Docker images exist for all three apps (§9, profile `app`); their builds have not been verified on a host with a working Docker daemon yet.
+- **Ingestion runs in one API process.** Recovery after a restart assumes a single owner of the queue (§4.1).
 
 ---
 
@@ -388,8 +397,7 @@ Dev auto-reload is opt-in (`--reload`; the nx `serve` target passes it) and watc
 
 **Containers.** `docker compose --profile app up -d --build` also runs `backend` (Python 3.12 slim + uv, one worker, volumes `book-storage` and `hf-cache`), `web` (Vite build behind unprivileged nginx on host port 3000: SPA fallback, `/api/v1/apps/` proxied to the backend with the prefix stripped, SSE unbuffered on `/chat/stream`, `/cdn-assets/` proxied to `ICON_CDN_PROXY_TARGET`) and `mcp` (HTTP transport, port 8030). Compose points the backend at `postgres`/`qdrant`/`mongo`/`redis` by service name; the env files stay git-ignored. Details: README "Running with Docker".
 
-Ports taken by another project? Run the backend on another port and point the web proxy at it in `apps/web/env/.env`:
-`PORT=3001` and `BACKEND_PROXY_TARGET=http://localhost:8021`.
+Defaults are backend 8020 and web 3000. If those ports are taken, start the backend with another `--port` and point the web at it in `apps/web/env/.env` (git-ignored): `PORT=<web port>` and `BACKEND_PROXY_TARGET=http://localhost:<backend port>`.
 
 Tests: `uv run pytest` (unit) · `-m integration` · `-m docling` · `-m external` · `-m ""` (everything) · web: `npm test`.
 
@@ -413,3 +421,25 @@ Use `--api` for another backend URL and, when JWT is on, `--token <access token>
 - **Reload:** `uvicorn` reload is off unless `--reload` is passed (ignored with `--worker > 1`).
 - **Secrets:** with `BE_JWT_ACTIVE=true`, `BE_JWT_SECRET` must be at least 32 characters; with `BE_ENC_ACTIVE=true`, `BE_ENC_SECRET` must be exactly 32 (AES-256 key). Startup fails with the key name and a generator command otherwise.
 - **Singletons:** the Postgres pool, Qdrant, embedding, Mongo and Redis clients are created under a per-class lock (double-checked). The Postgres pool (`BE_POSTGRES_POOL_MAX_SIZE`, default 10) is intentionally smaller than the 64-thread worker pool: threads hold a connection only while querying and otherwise wait on the pool. The async Redis client is a process-wide singleton bound to the server's single event loop.
+
+---
+
+## 10. Security and operations summary
+
+- **Auth:** opt-in (`BE_JWT_ACTIVE`); user JWT in HttpOnly cookies, `X-Internal-Token` for system callers (MCP, seed script) — §4.7. Secrets are validated at startup (JWT >= 32 characters, AES key exactly 32). Cookie `Secure` flag: `BE_AUTH_COOKIE_SECURE`.
+- **Surface:** only the library routers mount by default; the legacy admin routers and `/monitoring/threadpool` are opt-in (§9 Startup defaults).
+- **Abuse limits:** per-route rate limits and capacity caps with `Retry-After` (`docs/api-spec.md`), request body cap, `X-Forwarded-For` trusted only from `BE_TRUSTED_PROXIES`, an upload size cap and `%PDF-` magic-byte check.
+- **Failure isolation:** Docling parses in a child process with a timeout and optional memory cap; LLM calls have request and first-token timeouts; errors reach clients as short, safe messages.
+- **Containers:** `docker compose --profile app` builds backend, web and MCP images with pinned base tags and health checks (§9).
+- **CI:** `.github/workflows/ci.yml` runs backend `pytest`, web typecheck + lint + tests + build, and MCP `pytest` on pushes and pull requests. Integration, docling and external tests are not part of CI (they need services or large models).
+
+## 11. Still open
+
+| Item | Notes |
+|---|---|
+| S3 / object storage | PDFs live on local disk (`BE_BOOK_STORAGE_DIR`); `util/s3_filesystem.py` exists from the boilerplate but is not wired to books. Needs an S3-compatible server choice |
+| pgvector evaluation | Qdrant is the vector store; compare pgvector behind the `VectorStore` interface (the Postgres image already ships the extension). Switching means re-indexing |
+| Langfuse telemetry | Optional Agno OpenInference instrumentor to Langfuse OTLP |
+| Cross-language retrieval | Questions in another language than the book rank the wrong chapter (§8) |
+| OCR engine | The OCR fallback is in place but finds no engine with the current lock; fixing it means pinning rapidocr 3.9, which upgrades numpy 2 / pandas 3 / opencv 5 — a dependency decision |
+| Multi-process ingestion recovery | Startup recovery assumes one API process; several would need an owner/heartbeat design |
