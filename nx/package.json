@@ -1,5 +1,5 @@
 {
-  "name": "socionouva",
+  "name": "readwise-ai-runner",
   "private": true,
   "workspaces": [
     "apps/*"
