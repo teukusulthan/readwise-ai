@@ -156,6 +156,8 @@ app.add_middleware(
     allow_credentials="*" not in _origins,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Readable by a cross-origin web app: the batch upload waits this long after a 429.
+    expose_headers=["Retry-After"],
 )
 
 

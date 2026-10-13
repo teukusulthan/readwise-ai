@@ -46,6 +46,11 @@ async def test_cors_allows_configured_origin_with_credentials(client):
     assert resp.headers.get("access-control-allow-credentials") == "true"
 
 
+async def test_cors_exposes_retry_after_to_the_web(client):
+    resp = await client.get("/health", headers={"Origin": "http://localhost:3000"})
+    assert "retry-after" in resp.headers.get("access-control-expose-headers", "").lower()
+
+
 async def test_cors_rejects_unknown_origin(client):
     resp = await client.options(
         "/health",
