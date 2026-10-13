@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a backend task is creat
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Account security hardening (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/backend/router/auth.py`, `apps/backend/service/auth.py`, `apps/backend/service/user.py`, `apps/backend/dto/auth.py`, `apps/backend/auth/auth_handler.py`, `apps/backend/auth/auth_bearer.py`, `apps/backend/middleware/route_limits.py`, `apps/backend/config/base.py`, `apps/backend/.env.example`, `apps/backend/tests/unit/test_auth_hardening.py`, `apps/backend/tests/unit/test_rate_limits.py`, `apps/backend/tests/integration/test_accounts.py`, `docs/api-spec.md`, `docs/api/auth.md`
+> Emailed codes (registration, password reset) are bound to their email (`POST /auth/verification` and `/auth/forgot-password/verify` now take `{ email, otp }` in the body, `/change` adds `email`), stored hashed and discarded after 5 wrong tries; before, any 6-digit guess was looked up globally. The pending registration keeps a bcrypt hash instead of the plaintext password (which was also debug-logged), and `/auth/verification` no longer echoes the account with its password. New `BE_RATE_LIMIT_AUTH_PER_MINUTE=10` budget on login, register, codes, password reset, 2FA and Google routes. Server-side input rules: password 8+ chars, ≤ 72 bytes, not common or equal to username/email; username needs a letter; email lower-cased; phone normalised; email/username/phone unique across all three identifiers, case-insensitive. Login for unknown identifiers does the same bcrypt work and lockout. `JWTRefresh` accepts only unexpired, unrevoked refresh tokens; logout revokes the refresh token; `/auth/refresh` re-reads the account (blocked/deleted/expired or password changed since issue → 401) and takes the permission from the database. Forgot-password: fixed the `setting_id` crash, same answer whether or not the account exists, reset ends older sessions, returns no account data. Auth endpoints return only their own refusal messages; unexpected errors are generic. Google token exchange checks the token audience and a verified email.
+
 ### 2026-10-13 · Proxy trust in compose, longer MCP ask timeout (no sprint) · ✅ Done
 
 **Event:** Files modified

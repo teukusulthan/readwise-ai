@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 import time
 import bcrypt
+import hashlib
+import hmac
 import json
+import secrets
 from hashlib import md5
 from smtplib import SMTP
 from loguru import logger
@@ -14,7 +17,8 @@ from auth.auth_handler import (
     token_response,
     decode_jwt,
     create_email_link_verification,
-    create_token
+    create_token,
+    revoked_token_key,
 )
 from config.base import settings
 from util.helper import encrypt
@@ -22,17 +26,18 @@ from datetime import datetime
 from dto.auth import (
     AuthDTO,
     SMTPDTO,
-    OtpDTO,
+    EmailOtpDTO,
     RequestChangeDTO,
     ChangePasswordOTPDTO,
     RegisterDTO,
-    RegisterOTPDTO,
     GoogleSSORequest,
     VerifyEmailDTO,
     RequestVerifyEmailDTO,
     GenerateTwoFactorDTO,
     TwoFactorVerifyDTO,
     TwoFactorResendDTO,
+    normalize_email,
+    normalize_phone,
 )
 from dto.user import UserDTO
 from service import Services
@@ -46,6 +51,19 @@ from authlib.integrations.starlette_client import OAuth
 # The only account status that may log in.
 ACTIVE_STATUS = "active"
 
+# Emailed codes (registration, password reset): valid this long, and dropped after this many wrong guesses.
+OTP_TTL_SECONDS = 1800
+OTP_MAX_ATTEMPTS = 5
+
+# A bcrypt hash of a random password at the cost of util.helper.encrypt: a login for an unknown account spends
+# the same bcrypt work as one for a real account, so the response time does not tell which accounts exist.
+_UNKNOWN_ACCOUNT_HASH = bcrypt.hashpw(secrets.token_bytes(16), bcrypt.gensalt(10))
+
+
+class AuthError(Exception):
+    """A refusal whose message is meant for the caller. The auth router shows only these messages; every other
+    error becomes a generic one, so internal details (database, SMTP, stack) never reach the client."""
+
 
 # Error messages
 class AuthErrors:
@@ -55,6 +73,19 @@ class AuthErrors:
     ACCOUNT_EXPIRED = "Account has been expired"
     ACCOUNT_BLOCKED = "Account has been blocked"
     ACCOUNT_DELETED = "Account has been deleted"
+    ACCOUNT_LOCKED = ("Account temporarily locked due to multiple failed login attempts. "
+                      "Please wait a few minutes before logging in again.")
+    OTP_INVALID = "The code is invalid or has expired"
+    SESSION_EXPIRED = "Your session has expired. Please sign in again."
+    EMAIL_TAKEN = "An account with this email already exists"
+    USERNAME_TAKEN = "This username is already taken"
+    PHONE_TAKEN = "An account with this phone number already exists"
+    MAIL_FAILED = "We could not send the email. Please try again later."
+    RESET_REQUESTED = "If an account with this email exists, a reset code has been sent to it."
+
+
+def _digest(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 class MailSender:
@@ -133,27 +164,92 @@ class Auth(BaseMongoRepository):
     def check_account_lock(self, account_id: str):
         locked = self.redis.get(f"login_lock:{account_id}")
         if locked:
-            raise Exception("Account temporarily locked due to multiple failed login attempts. Please wait a few minutes before logging in again.")
+            raise AuthError(AuthErrors.ACCOUNT_LOCKED)
 
-    def check_limit_forgot_password(self, account_id: str):
+    def reset_request_allowed(self, account_id: str) -> bool:
+        """At most one reset mail a minute and three per ACCOUNT_LOCK_TIME for an account."""
+        if not self.redis.set(f"forgot_password:cooldown:{account_id}", "1", ex=60, nx=True):
+            return False
         key = f"forgot_password:account:{account_id}"
         count = self.redis.incr(key)
-
         if count == 1:
             self.redis.expire(key, settings.ACCOUNT_LOCK_TIME)
+        return count <= 3
 
-        if count > 3:
-            raise Exception("Too many password reset attempts. Please wait a few minutes before requesting another reset.")
+    # ── Emailed codes ────────────────────────────────────────────────
+    # One pending code per (purpose, email), stored as a hash next to its payload. Checking needs the email
+    # and the code, and the code dies after OTP_MAX_ATTEMPTS wrong guesses, so 6 digits cannot be brute-forced
+    # (formerly any code was looked up globally, so guessing one hit whichever account it belonged to).
 
-    def check_forgot_password_cooldown(self, account_id: str):
-        key = f"forgot_password:cooldown:{account_id}"
+    def _otp_key(self, purpose: str, email: str) -> str:
+        return f"{purpose}:{_digest(normalize_email(email))}"
 
-        exists = self.redis.exists(key)
+    def store_otp(self, purpose: str, email: str, otp: str, payload: dict) -> None:
+        key = self._otp_key(purpose, email)
+        record = {"otpHash": _digest(f"{key}:{otp}"), **payload}
+        self.redis.delete(f"{key}:attempts")
+        self.redis.set(key, json.dumps(record), ex=OTP_TTL_SECONDS)
 
-        if exists:
-            raise Exception("Please wait before requesting again")
+    def check_otp(self, purpose: str, email: str, otp: str, consume: bool = True) -> dict:
+        """The payload stored with the code. Raises AuthError on a wrong, expired or exhausted code."""
+        key = self._otp_key(purpose, email)
+        attempts_key = f"{key}:attempts"
+        attempts = self.redis.incr(attempts_key)
+        if attempts == 1:
+            self.redis.expire(attempts_key, OTP_TTL_SECONDS)
+        raw = self.redis.get(key)
+        if not raw:
+            raise AuthError(AuthErrors.OTP_INVALID)
+        record = json.loads(raw)
+        if not hmac.compare_digest(record.get("otpHash", ""), _digest(f"{key}:{otp}")):
+            if attempts >= OTP_MAX_ATTEMPTS:
+                self.redis.delete(key, attempts_key)
+            raise AuthError(AuthErrors.OTP_INVALID)
+        if consume:
+            self.redis.delete(key, attempts_key)
+        return record
 
-        self.redis.set(key, "1", ex=60)
+    def _send_mail(self, to: str, subject: str, body: str) -> None:
+        mailer_meta = SMTPDTO(
+            smtpEmail=self.smtp_email,
+            smtpHost=self.smtp_host,
+            smtpPort=self.smtp_port,
+            smtpPassword=self.smtp_password,
+            smtpSender=self.smtp_sender,
+            useTls=self.smtp_use_tls,
+            type=self.smtp_type,
+        )
+        mail_handler = MailSender(mailer_meta)
+        try:
+            mail_handler.connect()
+            msg = MIMEMultipart()
+            msg["From"] = mailer_meta.smtpSender or mailer_meta.smtpEmail
+            msg["To"] = to
+            msg["Subject"] = subject
+            msg.attach(MIMEText(body, "plain"))
+            mail_handler.server.sendmail(
+                from_addr=mailer_meta.smtpSender or mailer_meta.smtpEmail,
+                to_addrs=to,
+                msg=msg.as_string(),
+            )
+        finally:
+            mail_handler.close()
+
+    def ensure_identifiers_free(self, email: str, username: str, phone: str) -> None:
+        """Email, username and phone are all login identifiers, so none may match any identifier of another
+        account (otherwise `username = someone's email` would shadow that account at login)."""
+        values = [email, username, phone]
+        query = {"$or": [{field: {"$in": values}} for field in ("email", "username", "phone")]}
+        # Case-insensitive: `Ada` and `ada` (or `Ada@x.io` and `ada@x.io`) are the same identifier.
+        existing = self.collection.find_one(query, collation={"locale": "en", "strength": 2})
+        if not existing:
+            return
+        taken = {str(existing.get(field) or "").lower() for field in ("email", "username", "phone")}
+        if email.lower() in taken:
+            raise AuthError(AuthErrors.EMAIL_TAKEN)
+        if username.lower() in taken:
+            raise AuthError(AuthErrors.USERNAME_TAKEN)
+        raise AuthError(AuthErrors.PHONE_TAKEN)
 
     def get_user_properties(
         self, dto: AuthDTO, query: dict, validate_password: bool = True
@@ -161,17 +257,23 @@ class Auth(BaseMongoRepository):
         account = self.collection.find_one(query)
 
         if not account:
-            raise Exception(f"Incorrect email or password")
+            if validate_password:
+                # Same lockout and bcrypt work as a real account: neither reveals that this one does not exist.
+                unknown_id = f"unknown:{_digest((dto.email or '').strip().lower())}"
+                self.check_account_lock(unknown_id)
+                bcrypt.checkpw((dto.password or "").encode("utf-8"), _UNKNOWN_ACCOUNT_HASH)
+                self.handle_login_fail(unknown_id)
+            raise AuthError(AuthErrors.INCORRECT_CREDENTIALS)
         else:
             account_id = account.get("_id")
             self.check_account_lock(account_id)
 
             if validate_password:
                 if not account.get("password") or not bcrypt.checkpw(
-                    dto.password.encode("utf-8"), account["password"].encode("utf-8")
+                    (dto.password or "").encode("utf-8"), account["password"].encode("utf-8")
                 ):
                     self.handle_login_fail(account_id)
-                    raise Exception(f"Incorrect email or password")
+                    raise AuthError(AuthErrors.INCORRECT_CREDENTIALS)
 
                 self.redis.delete(f"login_fail:{account_id}")
 
@@ -198,7 +300,7 @@ class Auth(BaseMongoRepository):
         account = self.collection.find_one({"email": dto.email})
 
         if account:
-            raise Exception("Your Account Is Already Registered")
+            raise AuthError("Your Account Is Already Registered")
 
         # Profile fields only: the caller never chooses status, permission, group, expiry or verification.
         resp = self.user_service.add(UserDTO(
@@ -216,15 +318,27 @@ class Auth(BaseMongoRepository):
         return resp
 
     def google_token_exchange(self, token: str):
+        # Only tokens issued to this app's OAuth client: a token some other app obtained for the same Google
+        # user must not sign in here (token substitution). Only verified Google emails are trusted.
+        token_info = requests.get(
+            "https://oauth2.googleapis.com/tokeninfo", params={"access_token": token}, timeout=10
+        )
+        audience = token_info.json() if token_info.status_code <= 299 else {}
+        if settings.GOOGLE_CLIENT_ID not in (audience.get("aud"), audience.get("azp")):
+            raise AuthError("Failed Exchange Token , Token Is Invalid")
+
         userinfo_res = requests.get(
             "https://openidconnect.googleapis.com/v1/userinfo",
             headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
         )
 
         if userinfo_res.status_code > 299:
-            raise Exception("Failed Exchange Token , Token Is Invalid")
+            raise AuthError("Failed Exchange Token , Token Is Invalid")
 
         userinfo = userinfo_res.json()
+        if not userinfo.get("email") or userinfo.get("email_verified") is not True:
+            raise AuthError("Google account email is not verified")
 
         return userinfo
 
@@ -305,10 +419,11 @@ class Auth(BaseMongoRepository):
                 "redirect_uri": redirect_uri,
                 "grant_type": "authorization_code",
             },
+            timeout=10,
         )
 
         if token_res.status_code > 299:
-            raise Exception("Failed Login By Google Please Try Again")
+            raise AuthError("Failed Login By Google Please Try Again")
 
         token = token_res.json()
 
@@ -376,17 +491,18 @@ class Auth(BaseMongoRepository):
         }
 
     def login(self, dto: AuthDTO):
+        if not dto.email or not dto.email.strip() or not dto.password:
+            raise AuthError(AuthErrors.INCORRECT_CREDENTIALS)
+        identifier = dto.email.strip()
+        dto = AuthDTO(email=identifier, password=dto.password)
         get_user_properties_filters = {
             "$or": [
-                {"email": dto.email},
-                {"username": dto.email},
-                {"phone": dto.email},
+                {"email": {"$in": [identifier, normalize_email(identifier)]}},
+                {"username": identifier},
+                {"phone": {"$in": [identifier, normalize_phone(identifier)]}},
             ]
         }
         additional_payloads = {}
-
-        if not dto.email:
-            raise Exception("User does not exist")
 
         # Process login by login method
         account,   permissionDetail, user_status = (
@@ -447,7 +563,7 @@ class Auth(BaseMongoRepository):
         account = self.collection.find_one(query)
 
         if not account:
-            raise Exception(AuthErrors.INCORRECT_CREDENTIALS)
+            raise AuthError(AuthErrors.INCORRECT_CREDENTIALS)
 
         account_id = account["_id"]
         self.check_account_lock(account_id)
@@ -456,7 +572,7 @@ class Auth(BaseMongoRepository):
             self._validate_password(dto.password, account["password"])
         except:
             self.handle_login_fail(account_id)
-            raise Exception(AuthErrors.INCORRECT_CREDENTIALS)
+            raise AuthError(AuthErrors.INCORRECT_CREDENTIALS)
 
         self.redis.delete(f"login_fail:{account_id}")
         self._update_login_status(account_id)
@@ -471,23 +587,23 @@ class Auth(BaseMongoRepository):
         if expired_date not in [None, "", 0]:
             current_time = int(datetime.now().timestamp() * 1000)
             if current_time > expired_date:
-                raise Exception(AuthErrors.ACCOUNT_EXPIRED)
+                raise AuthError(AuthErrors.ACCOUNT_EXPIRED)
 
         # Check account status: only "active" accounts log in. Both registration paths
         # (verify_register_otp and _register_without_verification) create them active.
         account_status = account.get("status")
         if account_status == "deleted":
-            raise Exception(AuthErrors.ACCOUNT_DELETED)
+            raise AuthError(AuthErrors.ACCOUNT_DELETED)
         elif account_status == "blocked":
-            raise Exception(AuthErrors.ACCOUNT_BLOCKED)
+            raise AuthError(AuthErrors.ACCOUNT_BLOCKED)
         elif account_status != ACTIVE_STATUS:
-            raise Exception(AuthErrors.NO_LOGIN_ACCESS)
+            raise AuthError(AuthErrors.NO_LOGIN_ACCESS)
 
     def _validate_password(self, input_password: str, stored_password: str):
         if not bcrypt.checkpw(
             input_password.encode("utf-8"), stored_password.encode("utf-8")
         ):
-            raise Exception(AuthErrors.INCORRECT_CREDENTIALS)
+            raise AuthError(AuthErrors.INCORRECT_CREDENTIALS)
 
     def _update_login_status(self, user_id: str):
         self.collection.update_one(
@@ -506,15 +622,22 @@ class Auth(BaseMongoRepository):
 
         return permissionDetail, user_status
 
-    def logout(self, credential: str):
-        credential = credential.replace("Bearer ", "")
-        decoded_token = decode_jwt(credential, ignoreExpired=True)
+    def logout(self, refresh_token: str | None):
+        """Revoke the refresh token until it would have expired, so a copy of it cannot mint new sessions.
+        The access token is short-lived (BE_JWT_EXPIRED) and its cookie is cleared by the router."""
+        if refresh_token:
+            refresh_token = refresh_token.replace("Bearer ", "")
+            decoded_token = decode_jwt(refresh_token, ignoreExpired=True)
+            if isinstance(decoded_token, dict) and decoded_token.get("type") == "refresh":
+                ttl = int(decoded_token.get("expire", 0) - time.time())
+                if ttl > 0:
+                    self.redis.set(revoked_token_key(refresh_token), "1", ex=ttl)
 
         return "Logout Success"
 
     def validate(self, credential: str, fullResponse: bool = False):
         if not credential:
-            raise Exception("Authentication required.")
+            raise AuthError("Authentication required.")
         credential = credential.replace("Bearer ", "")
         decoded_token = decode_jwt(credential, ignoreExpired=True)
 
@@ -527,77 +650,36 @@ class Auth(BaseMongoRepository):
         return {"status": "active"}
 
     def request_change(self, dto: RequestChangeDTO):
-            smtp = {
-                "smtpEmail": self.smtp_email,
-                "smtpHost": self.smtp_host,
-                "smtpPort": self.smtp_port,
-                "smtpPassword": self.smtp_password,
-                "smtpSender": self.smtp_sender,
-                "useTls": self.smtp_use_tls,
-                "type": self.smtp_type
-            }
-            account = self.collection.find_one({"email": dto.email})
-            if not account:
-                raise Exception(f"Account not found")
-            else:
-                account_id = account["_id"]
-                self.check_limit_forgot_password(account_id)
-                self.check_forgot_password_cooldown(account_id)
-                email_verified = account.get("emailVerified")
-                if not email_verified:
-                    raise Exception(f"Email not verified. Please contact the administrator.")
+        """Mail a reset code to an active, verified account. The answer is the same whether or not the account
+        exists (and when the request is throttled), so this endpoint does not reveal registered emails."""
+        account = self.collection.find_one({"email": dto.email})
+        if not account or not account.get("emailVerified") or account.get("status") != ACTIVE_STATUS:
+            return {"message": AuthErrors.RESET_REQUESTED}
+        if not self.reset_request_allowed(account["_id"]):
+            return {"message": AuthErrors.RESET_REQUESTED}
 
-                try:
-                    mailer_meta = SMTPDTO.model_validate(smtp)
-                    mail_handler = MailSender(mailer_meta)
-                    new_otp = create_otp()
-                    try:
-                        mail_handler.connect()
-
-                        self.redis.set(
-                            f"email-otp:{md5(new_otp.encode('utf-8')).hexdigest()}",
-                            OtpDTO(email=dto.email, otp=new_otp).model_dump_json(),
-                            1800,
-                        )
-                        msg = MIMEMultipart()
-                        msg["From"] = mailer_meta.smtpSender or mailer_meta.smtpEmail
-                        msg["To"] = dto.email
-                        msg["Subject"] = "Permohonan Lupa Password"
-                        msg.attach(
-                            MIMEText(
-                                f"""
-Halo {account['fullname']},
+        new_otp = create_otp()
+        self.store_otp("reset-otp", dto.email, new_otp, {"userId": account["_id"]})
+        try:
+            self._send_mail(dto.email, "Permohonan Lupa Password", f"""
+Halo {account.get('fullname') or account.get('username')},
 Kami menerima permohonan untuk mereset password akun Anda. Jika Anda tidak meminta ini, Anda dapat mengabaikan email ini.
 
 Berikut ini adalah kode keamanan Lupa Password Anda:
 
 {new_otp}
 
+Kode ini berlaku selama 30 menit.
+
 Thanks,
 Fusion Team
 
 
 Jika Anda memiliki pertanyaan atau memerlukan bantuan lebih lanjut, jangan ragu untuk menghubungi kami.
-                        """,
-                                "plain",
-                            )
-                        )
-                        mail_handler.server.sendmail(
-                            from_addr=mailer_meta.smtpSender or mailer_meta.smtpEmail,
-                            to_addrs=dto.email,
-                            msg=msg.as_string(),
-                        )
-
-                        return {"message": "Email request password sent"}
-
-                    except:
-                        raise Exception(f"Fail send email request password")
-                    finally:
-                        mail_handler.close()
-                except:
-                    raise Exception(
-                        f"SMTP of application with email {smtp.smtpEmail} is invalid"
-                    )
+""")
+        except Exception:
+            logger.exception("Sending the password reset mail failed")
+        return {"message": AuthErrors.RESET_REQUESTED}
 
     def request_verify_email(self,  dto: RequestVerifyEmailDTO):
             smtp = {
@@ -611,7 +693,7 @@ Jika Anda memiliki pertanyaan atau memerlukan bantuan lebih lanjut, jangan ragu 
                 }
             account = self.collection.find_one({"email": dto.email})
             if not account:
-                raise Exception(f"Account not found")
+                raise AuthError(f"Account not found")
             else:
                 try:
                     mailer_meta = SMTPDTO.model_validate(smtp)
@@ -681,123 +763,70 @@ Jika Anda memiliki pertanyaan atau memerlukan bantuan lebih lanjut, jangan ragu 
                 )
                 return account
             else:
-                raise Exception("Account is not found!")
+                raise AuthError("Account is not found!")
         else:
-            raise Exception("Token is Invalid or Expired")
+            raise AuthError("Token is Invalid or Expired")
 
-    def verity_otp(self, otp: str):
-        if self.redis.get(f"email-otp:{md5(otp.encode('utf-8')).hexdigest()}"):
-            return {
-                "message": "OTP is Valid",
-            }
-        else:
-            raise Exception("OTP is Invalid or Expired")
+    def verity_otp(self, dto: EmailOtpDTO):
+        """Check a reset code without using it up (it still counts as an attempt)."""
+        self.check_otp("reset-otp", dto.email, dto.otp, consume=False)
+        return {"message": "OTP is Valid"}
 
     def change_password_by_otp(self, dto: ChangePasswordOTPDTO):
-        if data_otp := self.redis.get(
-            f"email-otp:{md5(dto.otp.encode('utf-8')).hexdigest()}"
-        ):
-            data_otp = OtpDTO.model_validate_json(data_otp.encode("utf-8"))
-            account = self.collection.find_one({"email": data_otp.email})
-            if account:
-                self.collection.update_one(
-                    {"_id": account.get("_id")},
-                    {"$set": {"password": encrypt(dto.newPassword)}},
-                )
-                self.redis.delete(
-                    f"email-otp:{md5(dto.otp.encode('utf-8')).hexdigest()}"
-                )
-                return account
-            else:
-                raise Exception("Account is not found!")
-        else:
-            raise Exception("OTP is Invalid or Expired")
+        record = self.check_otp("reset-otp", dto.email, dto.otp)
+        account = self.collection.find_one({"_id": record.get("userId")})
+        if not account:
+            raise AuthError(AuthErrors.OTP_INVALID)
+        account_id = account["_id"]
+        # passwordChangedAt ends every session started before now (see refresh).
+        self.collection.update_one(
+            {"_id": account_id},
+            {"$set": {"password": encrypt(dto.newPassword), "passwordChangedAt": time.time()}},
+        )
+        self.redis.delete(f"login_fail:{account_id}", f"login_lock:{account_id}", f"session:{account_id}")
+        return {"message": "Password changed"}
 
     def register(self, dto: RegisterDTO):
+            self.ensure_identifiers_free(dto.email, dto.username, dto.phone)
             if not settings.AUTH_EMAIL_VERIFICATION:
                 return self._register_without_verification(dto)
-            smtp = {
-                "smtpEmail": self.smtp_email,
-                "smtpHost": self.smtp_host,
-                "smtpPort": self.smtp_port,
-                "smtpPassword": self.smtp_password,
-                "smtpSender": self.smtp_sender,
-                "useTls": self.smtp_use_tls,
-                "type": self.smtp_type
-            }
-            account = self.collection.find_one({"email": dto.email})
-            if account:
-                raise Exception(f"Account already exist")
-            phone = self.collection.find_one({"phone": dto.phone})
-            if phone:
-                raise Exception(f"Phone already exist")
-            else:
-                try:
-                    mailer_meta = SMTPDTO.model_validate(smtp)
-                    mail_handler = MailSender(mailer_meta)
-                    new_otp = create_otp()
-                    try:
-                        mail_handler.connect()
 
-                        self.redis.set(
-                            f"register-otp:{md5(new_otp.encode('utf-8')).hexdigest()}",
-                            RegisterOTPDTO(
-                                email=dto.email,
-                                otp=new_otp,
-                                fullname=dto.fullname,
-                                username=dto.username,
-                                password=dto.password,
-                                phone=dto.phone,
-                            ).model_dump_json(),
-                            1800,
-                        )
-                        msg = MIMEMultipart()
-                        msg["From"] = mailer_meta.smtpSender or mailer_meta.smtpEmail
-                        msg["To"] = dto.email
-                        msg["Subject"] = "Permohonan Pembuatan Akun Baru"
-                        msg.attach(
-                            MIMEText(
-                                f"""
-Halo {dto.fullname},
+            # The pending account waits in Redis until the code is confirmed. Only the bcrypt hash of the
+            # password is kept there, never the password itself.
+            new_otp = create_otp()
+            self.store_otp("register-otp", dto.email, new_otp, {"user": {
+                "fullname": dto.fullname,
+                "username": dto.username,
+                "email": dto.email,
+                "phone": dto.phone,
+                "passwordHash": encrypt(dto.password),
+            }})
+            try:
+                self._send_mail(dto.email, "Permohonan Pembuatan Akun Baru", f"""
+Halo {dto.fullname or dto.username},
 Kami menerima permohonan untuk membuat akun. Jika Anda tidak meminta ini, Anda dapat mengabaikan email ini.
 
 Ini Berikut adalah kode keamanan permohonan pembuatan akun Anda:
 
 {new_otp}
 
+Kode ini berlaku selama 30 menit.
+
 Thanks,
 Fusion Team
 
 
 Jika Anda memiliki pertanyaan atau memerlukan bantuan lebih lanjut, jangan ragu untuk menghubungi kami.
-                        """,
-                                "plain",
-                            )
-                        )
-                        mail_handler.server.sendmail(
-                            from_addr=mailer_meta.smtpSender or mailer_meta.smtpEmail,
-                            to_addrs=dto.email,
-                            msg=msg.as_string(),
-                        )
+""")
+            except Exception:
+                logger.exception("Sending the registration mail failed")
+                self.redis.delete(self._otp_key("register-otp", dto.email))
+                raise AuthError(AuthErrors.MAIL_FAILED)
 
-                        return {"message": "Email register sent", "verificationRequired": True}
-                    except:
-                        raise Exception(f"Fail send email register")
-                    finally:
-                        mail_handler.close()
-                except:
-                    raise Exception(
-                        f"SMTP of application with email {smtp.smtpEmail} is invalid"
-                    )
+            return {"message": "Email register sent", "verificationRequired": True}
 
     def _register_without_verification(self, dto: RegisterDTO) -> dict:
         """BE_AUTH_EMAIL_VERIFICATION=false (development only): create the active account at once, no mail."""
-        if self.collection.find_one({"email": dto.email}):
-            raise Exception("Account already exist")
-        if self.collection.find_one({"username": dto.username}):
-            raise Exception("Username already exist")
-        if self.collection.find_one({"phone": dto.phone}):
-            raise Exception("Phone already exist")
         user = self.user_service.add(UserDTO(
             fullname=dto.fullname,
             username=dto.username,
@@ -810,40 +839,43 @@ Jika Anda memiliki pertanyaan atau memerlukan bantuan lebih lanjut, jangan ragu 
         ))
         return {"message": "Account created", "verificationRequired": False, "id": user["id"]}
 
-    def verify_register_otp(self, otp: str):
-        redis_data = self.redis.get(
-            f"register-otp:{md5(otp.encode('utf-8')).hexdigest()}"
-        )
-        logger.debug(f"Redis: {redis_data}")
-        if redis_data:
-            redis_data = json.loads(redis_data)
-            param_user = UserDTO(
-                fullname=redis_data.get("fullname"),
-                username=redis_data.get("username"),
-                email=redis_data.get("email"),
-                phone=redis_data.get("phone"),
-                password=redis_data.get("password"),
-                status=ACTIVE_STATUS,
-                multiLogin=True,
-                emailVerified=True
-            )
-            self.user_service.add(param_user)
-            return param_user.dict(exclude_unset=True)
-        else:
-            raise Exception("OTP is Invalid or Expired")
+    def verify_register_otp(self, dto: EmailOtpDTO):
+        user = self.check_otp("register-otp", dto.email, dto.otp).get("user") or {}
+        # Someone may have taken one of the identifiers while the code was in the mail.
+        self.ensure_identifiers_free(user["email"], user["username"], user["phone"])
+        self.user_service.add(UserDTO(
+            fullname=user.get("fullname"),
+            username=user["username"],
+            email=user["email"],
+            phone=user["phone"],
+            password=user["passwordHash"],
+            status=ACTIVE_STATUS,
+            multiLogin=True,
+            emailVerified=True,
+        ), password_is_hash=True)
+        return {"message": "Account verified"}
 
-    def refresh(
-        self, credential: str, user_id: str,  permission_id: str
-    ):
+    def refresh(self, credential: str):
+        """New token pair for a refresh token. The account is read again, so a blocked, deleted or expired account,
+        or a password changed since the token was issued, ends the session; permission changes are picked up."""
         if isinstance(credential, str):
             credential = credential.replace("Bearer ", "")
-        decoded_token = decode_jwt(credential, ignoreExpired=True)
+        decoded_token = decode_jwt(credential or "", ignoreExpired=True)
+        if not isinstance(decoded_token, dict) or decoded_token.get("type") != "refresh":
+            raise AuthError(AuthErrors.SESSION_EXPIRED)
+        if time.time() > decoded_token.get("expire", 0):
+            raise AuthError(AuthErrors.SESSION_EXPIRED)
+        if self.redis.exists(revoked_token_key(credential)):
+            raise AuthError(AuthErrors.SESSION_EXPIRED)
 
-        current_time = time.time()
-        expire_time = decoded_token["expire"]
-        # refresh_window = 30 * 24 * 60 * 60  # 30 days
-        if current_time > expire_time + settings.JWT_REFRESH:
-            raise Exception("Token expired more than 30 days ago")
+        account = self.collection.find_one({"_id": decoded_token.get("user_id")})
+        if not account:
+            raise AuthError(AuthErrors.SESSION_EXPIRED)
+        self._validate_account_status(account)
+        if decoded_token.get("issued", 0) < (account.get("passwordChangedAt") or 0):
+            raise AuthError(AuthErrors.SESSION_EXPIRED)
+        user_id = account["_id"]
+        permission_id = account.get("permissionId")
 
         multiLogin = decoded_token.get("multiLogin", True)
         additional_payload = {
@@ -855,6 +887,8 @@ Jika Anda memiliki pertanyaan atau memerlukan bantuan lebih lanjut, jangan ragu 
                 "permission_id",
                 "multiLogin",
                 "expire",
+                "issued",
+                "type",
             ]
         }
         auth = sign_jwt(
@@ -869,7 +903,7 @@ Jika Anda memiliki pertanyaan atau memerlukan bantuan lebih lanjut, jangan ragu 
             redis_key = f"session:{user_id}"
             stored_token = redis_client.get(redis_key)
             if credential != stored_token:
-                raise Exception("No active session found for user")
+                raise AuthError("No active session found for user")
 
             redis_client.delete(redis_key)
             expire_time = datetime.fromisoformat(expire_str)
@@ -1006,7 +1040,8 @@ class TwoFactorService:
         except Exception as e:
             if 'mail_handler' in locals():
                 mail_handler.close()
-            raise Exception(f"Failed to send email: {str(e)}")
+            logger.exception("Sending the 2FA mail failed")
+            raise AuthError(AuthErrors.MAIL_FAILED) from e
 
     def generate_2fa(self, dto: GenerateTwoFactorDTO):
         from service.auth import Auth
@@ -1023,8 +1058,8 @@ class TwoFactorService:
 
         try:
             account, _, _, _, _ = auth_service.get_user_properties(login_dto, query, validate_password=True)
-        except Exception as e:
-            raise Exception(f"Authentication failed: {str(e)}")
+        except AuthError as e:
+            raise AuthError(f"Authentication failed: {e}") from e
         user_id = account["_id"]
         session_token = create_token()
         
@@ -1058,12 +1093,12 @@ class TwoFactorService:
                 **qr_result
             }
         else:
-            raise Exception(f"Unsupported 2FA type: {dto.type}")
+            raise AuthError(f"Unsupported 2FA type: {dto.type}")
 
     def verify_two_factor(self, dto: TwoFactorVerifyDTO):
         session_json = self.redis.get(f"2fa-session:{dto.session_token}")
         if not session_json:
-            raise Exception("Session expired or invalid. Please request a new 2FA code.")
+            raise AuthError("Session expired or invalid. Please request a new 2FA code.")
             
         session = json.loads(session_json)
         user_id = session["user_id"]
@@ -1074,7 +1109,7 @@ class TwoFactorService:
             if session["otp"] == otp:
                 self.redis.delete(f"2fa-session:{dto.session_token}")
             else:
-                raise Exception("Wrong OTP Code")
+                raise AuthError("Wrong OTP Code")
 
         # 2. Check Google Authenticator
         elif session["type"] == "google_authenticator":
@@ -1090,7 +1125,7 @@ class TwoFactorService:
                     self.redis.delete(f"2fa-sign:{user_id}")
                     self.redis.delete(f"2fa-session:{dto.session_token}")
                 else:
-                    raise Exception("Wrong OTP Code")
+                    raise AuthError("Wrong OTP Code")
             else:
                 # Login Mode
                 user = self.collection_user.find_one({"_id": user_id})
@@ -1101,11 +1136,11 @@ class TwoFactorService:
                     if totp.verify(otp, valid_window=1):
                         self.redis.delete(f"2fa-session:{dto.session_token}")
                     else:
-                        raise Exception("Wrong OTP Code")
+                        raise AuthError("Wrong OTP Code")
                 else:
-                    raise Exception("User not activated 2FA yet.")
+                    raise AuthError("User not activated 2FA yet.")
         else:
-             raise Exception(f"Unsupported 2FA type: {session['type']}")
+             raise AuthError(f"Unsupported 2FA type: {session['type']}")
 
         # Success - Generate Full Login Response
         account = self.collection_user.find_one({"_id": user_id})
@@ -1134,12 +1169,12 @@ class TwoFactorService:
     def resend_2fa(self, dto: TwoFactorResendDTO):
         session_json = self.redis.get(f"2fa-session:{dto.session_token}")
         if not session_json:
-            raise Exception("Session expired or invalid. Please request a new 2FA code.")
+            raise AuthError("Session expired or invalid. Please request a new 2FA code.")
             
         session = json.loads(session_json)
         
         if session["resend_count"] >= 5:
-            raise Exception("Resend limit reached. Please start a new 2FA request.")
+            raise AuthError("Resend limit reached. Please start a new 2FA request.")
             
         if session["type"] == "email":
             new_otp = create_otp()
@@ -1154,4 +1189,4 @@ class TwoFactorService:
             
             return {"message": "Verification code has been resent to your email."}
         else:
-            raise Exception("Resend not supported for this 2FA type.")
+            raise AuthError("Resend not supported for this 2FA type.")

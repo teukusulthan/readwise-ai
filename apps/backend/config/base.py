@@ -105,6 +105,8 @@ class BaseSetting(BaseSettings):
     RATE_LIMIT_UPLOAD_PER_MINUTE: int = Field(default=20)
     RATE_LIMIT_CHAT_PER_MINUTE: int = Field(default=30)
     RATE_LIMIT_SEARCH_PER_MINUTE: int = Field(default=60)
+    # Login, registration, email codes, password reset (router/auth.py): per client IP for signed-out callers.
+    RATE_LIMIT_AUTH_PER_MINUTE: int = Field(default=10)
     # Comma-separated CIDRs/IPs of reverse proxies whose X-Forwarded-For header is believed
     # (empty = never trust it; the socket peer is the client). See util/client_ip.py.
     TRUSTED_PROXIES: str = Field(default="")

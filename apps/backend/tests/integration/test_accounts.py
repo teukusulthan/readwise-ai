@@ -167,22 +167,55 @@ async def test_register_without_verification_then_login_owns_conversations(app, 
 
 
 async def test_verified_registration_then_login(app, users):
-    """The default flow: the OTP stored by /auth/register, confirmed by /auth/verification, makes an active account."""
-    import hashlib
-    from dto.auth import RegisterOTPDTO
+    """The default flow: the code stored by /auth/register, confirmed by /auth/verification with its email, makes an
+    active account. The pending registration holds only a password hash, and a code is useless for another email."""
+    from service.auth import Auth
+    from util.helper import encrypt
 
     otp = "654321"
-    account = {"fullname": "Grace Reader", "username": "grace", "email": "grace@accounts.test",
-               "password": "correct horse battery", "phone": "+15550002"}
-    Services.redis().set(f"register-otp:{hashlib.md5(otp.encode()).hexdigest()}",
-                     RegisterOTPDTO.model_construct(otp=otp, **account).model_dump_json(), 60)   # skip the MX check
+    password = "correct horse battery"
+    pending = {"fullname": "Grace Reader", "username": "grace", "email": "grace@accounts.test",
+               "phone": "+15550002", "passwordHash": encrypt(password)}
+    Auth().store_otp("register-otp", pending["email"], otp, {"user": pending})   # what /auth/register stores
     async with _client(app) as client:
-        verified = await client.post("/auth/verification", params={"otp": otp})
+        wrong_email = await client.post("/auth/verification", json={"email": "mallory@accounts.test", "otp": otp})
+        assert wrong_email.status_code == 400
+        assert wrong_email.json()["metaData"]["message"] == "The code is invalid or has expired"
+
+        verified = await client.post("/auth/verification", json={"email": "grace@accounts.test", "otp": otp})
         assert verified.status_code == 200, verified.text
+        assert verified.json()["data"] == {"message": "Account verified"}
         stored = users.find_one({"email": "grace@accounts.test"})
         assert stored["status"] == "active" and stored["emailVerified"] is True
-        login = await client.post("/auth/login", json={"email": "grace", "password": account["password"]})
+        login = await client.post("/auth/login", json={"email": "grace", "password": password})
         assert login.status_code == 200, login.text
+        # The code is spent.
+        again = await client.post("/auth/verification", json={"email": "grace@accounts.test", "otp": otp})
+        assert again.status_code == 400
+
+
+async def test_logout_revokes_the_refresh_token(app, users, monkeypatch):
+    monkeypatch.setattr(settings, "AUTH_EMAIL_VERIFICATION", False)
+    account = {"username": "kim", "email": "kim@accounts.test", "password": "correct horse battery",
+               "phone": "+15550005"}
+    async with _client(app) as client:
+        assert (await client.post("/auth/register", json=account)).status_code == 200
+        login = await client.post("/auth/login", json={"email": "kim", "password": account["password"]})
+        assert login.status_code == 200, login.text
+        refresh_cookie, access_cookie = login.cookies["refresh_token"], login.cookies["token"]
+
+        # An access token is not a refresh token.
+        client.cookies.clear()
+        assert (await client.get("/auth/refresh", headers={"Authorization": f"Bearer {access_cookie}"})).status_code == 403
+
+        client.cookies.set("refresh_token", refresh_cookie)
+        assert (await client.delete("/auth/logout")).status_code == 200
+
+    # A copy of the signed-out refresh cookie cannot start a new session.
+    async with _client(app) as thief:
+        thief.cookies.set("refresh_token", refresh_cookie)
+        assert (await thief.get("/auth/refresh")).status_code == 401
+        assert (await thief.get("/auth/validate")).status_code == 401
 
 
 async def test_login_refuses_an_account_that_is_not_active(app, users):

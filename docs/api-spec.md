@@ -33,7 +33,10 @@ Authorization: Bearer <token>
 > Tokens are also stored in HttpOnly cookies (`token`, `refresh_token`) as a fallback. `POST /auth/login` returns
 > only `{ user: {id, fullname, username, email, …} }` in the body; the tokens are set as `HttpOnly`, `SameSite=Lax`
 > cookies, `Secure` unless `BE_AUTH_COOKIE_SECURE=false` (development over plain HTTP only). `GET /auth/refresh` (refresh cookie) issues new ones; `DELETE /auth/logout` clears both
-> (it needs only the refresh cookie).
+> (it needs only the refresh cookie) and revokes the refresh token server-side (Redis, until it would expire), so a
+> copied cookie cannot start new sessions. `JWTRefresh` routes (`/auth/refresh`, `/auth/validate`, `/auth/logout`)
+> accept only an unexpired, unrevoked **refresh** token (an access token is `403`). `/auth/refresh` re-reads the account:
+> a blocked/deleted/expired account, or a password changed after the token was issued, answers `401`.
 
 Auth is **opt-in**: with `BE_JWT_ACTIVE=false` no endpoint checks credentials and every caller is the owner `"local"`.
 With `BE_JWT_ACTIVE=true` (`auth/principal.py`, the router dependency of every `JWTBearer` route):
@@ -51,17 +54,33 @@ reported like an unknown one (resume: `error` event code 404; cancel: `404`). Co
 accounts existed (`owner_id` NULL) belong to `"local"` only. The book catalog is shared by everyone.
 
 **Registration.** `POST /auth/register` `{ fullname?, username, email, password, phone }`. Default
-(`BE_AUTH_EMAIL_VERIFICATION=true`): MX + Proofy check, an OTP is mailed over SMTP →
-`{ message, verificationRequired: true }`; confirm with `POST /auth/verification?otp=`. Development
+(`BE_AUTH_EMAIL_VERIFICATION=true`): MX + Proofy check, a 6-digit code is mailed over SMTP →
+`{ message, verificationRequired: true }`; confirm with `POST /auth/verification` `{ email, otp }` →
+`{ message: "Account verified" }`. The pending registration (Redis, 30 min) holds only a bcrypt hash of the password;
+a code is valid only with its email and is discarded after 5 wrong tries. Development
 (`BE_AUTH_EMAIL_VERIFICATION=false`): the account is created at once → `{ message, verificationRequired: false, id }`.
-`400` with the message when the email, username or phone is taken. `BE_AUTH_REGISTRATION_OPEN=false` closes every
+`400` with the message when the email, username or phone is taken by any account (all three are login identifiers,
+compared case-insensitively). Input rules (`422` otherwise): username 3-40 of `A-Z a-z 0-9 . _ -` with at least one
+letter; email lower-cased; phone `+` and 6-20 digits (spaces, dashes and brackets are stripped); password at least 8
+characters, at most 72 bytes (bcrypt's limit), not one of the most common passwords nor the username/email. `BE_AUTH_REGISTRATION_OPEN=false` closes every
 registration endpoint (`/auth/register`, `/auth/verification`, `/auth/google/register`) with `403`
 "Registration is closed."; existing accounts still log in.
 
 **Login.** Only accounts with `status: "active"` log in (both registration paths create them active); any other
 status answers `403` ("User doesn't have login access", or "Account has been blocked/deleted/expired") — but only
 after the password matched; a wrong password is always `400` "Incorrect email or password". `emailVerified` is not
-checked at login (the development registration path sets it `false`).
+checked at login (the development registration path sets it `false`). Unknown identifiers get the same answer, the
+same bcrypt work and the same lockout (`BE_ACCOUNT_FAIL_LIMIT` failures → locked for `BE_ACCOUNT_LOCK_TIME`), so
+neither the message nor the timing reveals which accounts exist.
+
+**Password reset.** `POST /auth/forgot-password/request` `{ email }` always answers the same message (whether or not
+the account exists, and when throttled: one mail a minute, three per `BE_ACCOUNT_LOCK_TIME`); only active accounts with
+a verified email get a code. `POST /auth/forgot-password/verify` `{ email, otp }` checks it;
+`POST /auth/forgot-password/change` `{ email, otp, newPassword }` sets the password (same rules as registration) and
+ends every existing session (refresh tokens issued earlier are refused).
+
+**Errors.** Auth endpoints show only their own refusal messages; any unexpected failure answers
+"Something went wrong. Please try again later." (details are logged, never returned).
 
 **Google OAuth.** `/auth/google/*` is mounted only when `BE_GOOGLE_CLIENT_ID` and `BE_GOOGLE_CLIENT_SECRET` are both
 set (`404` otherwise). `/auth/google/register` uses only the profile fields of its body and always creates an active,
@@ -142,7 +161,7 @@ If you need to use these modules, you can access the documentation for the Auth,
 | GET | `/monitoring/threadpool` | Threadpool monitoring stats (only when the `monitoring` router is enabled; unmounted by default) | No |
 | POST | `/auth/login` | Login user | No |
 | POST | `/auth/register` | Register new user (`403` when `BE_AUTH_REGISTRATION_OPEN=false`) | No |
-| POST | `/auth/verification` | Verify registration OTP (`403` when registration is closed) | No |
+| POST | `/auth/verification` | Verify registration code `{ email, otp }` (`403` when registration is closed) | No |
 | DELETE | `/auth/logout` | Logout user | JWTRefresh |
 | GET | `/auth/validate` | Validate token | JWTRefresh |
 | GET | `/auth/refresh` | Refresh access token | JWTRefresh |
@@ -151,8 +170,8 @@ If you need to use these modules, you can access the documentation for the Auth,
 | POST | `/auth/google/token_exchange` | Exchange Google token (only with Google OAuth configured) | No |
 | POST | `/auth/google/register` | Register via Google SSO (only with Google OAuth configured; `403` when registration is closed) | No |
 | POST | `/auth/forgot-password/request` | Request forgot password OTP | No |
-| POST | `/auth/forgot-password/verify` | Verify forgot password OTP | No |
-| POST | `/auth/forgot-password/change` | Change password via OTP | No |
+| POST | `/auth/forgot-password/verify` | Verify forgot password code `{ email, otp }` | No |
+| POST | `/auth/forgot-password/change` | Change password `{ email, otp, newPassword }` | No |
 | POST | `/auth/verify-email/request` | Request email verification | No |
 | GET | `/auth/verify-email` | Verify email via token | No |
 | POST | `/auth/2fa/generate` | Generate 2FA QR/OTP | No |
@@ -266,6 +285,7 @@ Failures use this same envelope as the **top-level** body (HTTP status = `metaDa
 | `POST /book/upload` (new book or attach PDF) | 20 / min per client | `BE_RATE_LIMIT_UPLOAD_PER_MINUTE` |
 | `POST /chat/ask`, `POST /chat/stream` | 30 / min per client | `BE_RATE_LIMIT_CHAT_PER_MINUTE` |
 | `POST /search/query` | 60 / min per client | `BE_RATE_LIMIT_SEARCH_PER_MINUTE` |
+| `/auth/login`, `/auth/register`, `/auth/verification`, `/auth/forgot-password/*`, `/auth/verify-email*`, `/auth/2fa/*`, `/auth/google/*` (one shared budget) | 10 / min per client | `BE_RATE_LIMIT_AUTH_PER_MINUTE` |
 | `POST /book/upload`, `POST /book/reindex` | message "Indexing queue is full, try again later." while `BE_INGESTION_MAX_QUEUED` (50) books are `queued` | `BE_INGESTION_MAX_QUEUED` |
 | `POST /chat/stream` | "Too many answers are being generated right now, try again shortly." while `BE_CHAT_MAX_CONCURRENT_SESSIONS` (20) answers run | `BE_CHAT_MAX_CONCURRENT_SESSIONS` |
 

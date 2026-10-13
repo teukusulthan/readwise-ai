@@ -1,3 +1,4 @@
+import hashlib
 import time
 from datetime import datetime
 from typing import Dict
@@ -26,6 +27,8 @@ def sign_jwt(user_id: str, permissionID, multiLogin, **additional_payloads) -> D
 
 def base_sign_jwt(payload:dict):
     payload = payload.copy()
+    # When the pair was minted: refresh tokens issued before a password change are refused (service/auth.py).
+    payload["issued"] = time.time()
 
     # ACCESS TOKEN
     access_payload = payload.copy()
@@ -81,6 +84,11 @@ def create_token() -> str:
 
 def create_email_link_verification(domain: str, token: str) -> str:
     return f"https://{domain}/api/v1/apps/auth/verify-email?token={token}"
+
+
+def revoked_token_key(token: str) -> str:
+    """Redis key that marks a signed-out refresh token (set by /auth/logout, checked by JWTRefresh)."""
+    return f"revoked-token:{hashlib.sha256(token.encode('utf-8')).hexdigest()}"
 
 
 def decode_jwt(token: str, ignoreExpired: bool = False):

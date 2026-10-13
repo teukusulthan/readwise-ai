@@ -3,7 +3,7 @@ import json
 from fastapi import Request, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.datastructures import MutableHeaders
-from .auth_handler import decode_jwt, replace_created_by, replace_user_id, add_user_filter
+from .auth_handler import decode_jwt, replace_created_by, replace_user_id, add_user_filter, revoked_token_key
 from loguru import logger
 
 from util import redis
@@ -84,16 +84,20 @@ class JWTRefresh(HTTPBearer):
         if not token:
             raise HTTPException(status_code=401, detail="Authentication required.")
 
-        payload = decode_jwt(token, ignoreExpired=True)
+        payload = decode_jwt(token)
 
         if payload == "Invalid":
             raise HTTPException(status_code=403, detail="Invalid token.")
 
         if payload == "Expired":
-            raise HTTPException(status_code=403, detail="Expired token.")
+            raise HTTPException(status_code=401, detail="Expired token.")
 
-        if 'user_id' not in payload:
+        # Only refresh tokens: an access token must not mint new sessions or outlive its own expiry here.
+        if payload.get("type") != "refresh" or 'user_id' not in payload:
             raise HTTPException(status_code=403, detail="Invalid token")
+
+        if redis.RedisService().exists(revoked_token_key(token)):
+            raise HTTPException(status_code=401, detail="Session ended.")
 
         if request.query_params.get("full_response", None):
             payload["full_response"] = request.query_params.get("full_response")

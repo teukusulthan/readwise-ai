@@ -29,6 +29,7 @@ BUDGETS = {
     "upload": "RATE_LIMIT_UPLOAD_PER_MINUTE",
     "chat": "RATE_LIMIT_CHAT_PER_MINUTE",
     "search": "RATE_LIMIT_SEARCH_PER_MINUTE",
+    "auth": "RATE_LIMIT_AUTH_PER_MINUTE",
 }
 
 

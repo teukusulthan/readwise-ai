@@ -307,3 +307,22 @@ async def test_slot_is_released_when_the_answer_ends(chat):
         await asyncio.sleep(0.01)
     assert await sessions.store.client.zcard("chat:sessions:running") == 0
     assert (await sessions.store.meta(session_id))["status"] == "done"
+
+
+async def test_auth_budget_limits_signed_out_clients(redis, settings, monkeypatch):
+    monkeypatch.setattr(settings, "RATE_LIMIT_AUTH_PER_MINUTE", 2)
+    async with _client(_app("auth")) as client:
+        assert (await client.post("/limited")).status_code == 200
+        assert (await client.post("/limited")).status_code == 200
+        assert (await client.post("/limited")).status_code == 429
+
+
+def test_password_and_code_endpoints_carry_the_auth_budget(app):
+    def budgets(route):
+        dependant = getattr(route, "dependant", None)
+        return {getattr(dep.call, "__name__", "") for dep in dependant.dependencies} if dependant else set()
+
+    limited = {route.path for route in app.routes if "route_limit_auth" in budgets(route)}
+    assert {"/auth/login", "/auth/register", "/auth/verification", "/auth/forgot-password/request",
+            "/auth/forgot-password/verify", "/auth/forgot-password/change"} <= limited
+    assert "/auth/refresh" not in limited   # the web client refreshes silently; it needs a valid refresh token

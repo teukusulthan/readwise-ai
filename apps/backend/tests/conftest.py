@@ -35,6 +35,8 @@ _TEST_ENV = {
     "BE_ENC_SECRET_PERMISSION": "0123456789abcdef",
     "BE_CORS_ORIGINS": "http://localhost:3000",
     "BE_RATE_LIMIT_ACTIVE": "false",
+    # Tests log in many times from one address; the auth budget itself is tested in test_rate_limits.py.
+    "BE_RATE_LIMIT_AUTH_PER_MINUTE": "0",
     "BE_MAX_REQUEST_BODY_MB": "1",
     "BE_MAX_UPLOAD_SIZE_MB": "1",
     "BE_MONGO_URI": "mongodb://localhost:27017/?serverSelectionTimeoutMS=500",

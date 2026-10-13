@@ -37,13 +37,14 @@ class User(BaseMongoRepository):
             f"v_{settings.MONGO_COLLECTION_USER}"
         )
         
-    def add(self, dto: UserDTO):
+    def add(self, dto: UserDTO, password_is_hash: bool = False):
+        """`password_is_hash`: dto.password is already a bcrypt hash (a registration confirmed by email code)."""
         _id = get_md5(f"{dto.email}-{dto.phone}")
         data = self.get_by_id(_id)
         if not data:
             data = dto.dict()
             data["createdAt"] = datetime.now()
-            return self.add_or_update_process(data, _id)
+            return self.add_or_update_process(data, _id, password_is_hash=password_is_hash)
         else:
             logger.info(f"User already exist")
             raise Exception(f"User already exist!")
@@ -132,7 +133,7 @@ class User(BaseMongoRepository):
         else:
             raise Exception("Account is not found!")
 
-    def add_or_update_process(self, data, _id):
+    def add_or_update_process(self, data, _id, password_is_hash: bool = False):
         if "id" in data:
             method = "put"
             endpoint = "api/v1/appUsers/update"
@@ -154,7 +155,8 @@ class User(BaseMongoRepository):
             method = "post"
             endpoint = "api/v1/appUsers/add"
 
-            data["password"] = encrypt(data["password"])
+            if not password_is_hash:
+                data["password"] = encrypt(data["password"])
 
         data["updatedAt"] = datetime.now()
         self.collection.update_one(

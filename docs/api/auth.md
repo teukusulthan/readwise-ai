@@ -54,8 +54,9 @@ Login and obtain access token + refresh token. Tokens are stored in HttpOnly coo
 | Status | Description |
 |---|---|
 | `200` | Login successful |
-| `400` | Login failed (unknown account or wrong password — the account's state is never revealed before the password matches) |
+| `400` | Login failed (unknown account or wrong password — the account's state is never revealed before the password matches), or locked after `BE_ACCOUNT_FAIL_LIMIT` failures; unknown identifiers lock and take as long as real ones |
 | `403` | Correct password, but the account may not log in: expired, deleted, blocked, or any `status` other than `"active"` ("User doesn't have login access") |
+| `429` | Auth rate limit (`BE_RATE_LIMIT_AUTH_PER_MINUTE`, shared by the auth endpoints, per client) |
 
 Only accounts with `status: "active"` log in. Both registration paths create active accounts
 (`/auth/verification` with `emailVerified: true`; the development path with `emailVerified: false`); `emailVerified`
@@ -74,12 +75,15 @@ OTP is mailed over SMTP; the account exists only after `POST /auth/verification`
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `username` | string | yes | Unique username |
-| `email` | string | yes | Valid email (will be verified for MX + deliverability) |
-| `password` | string | yes | Password |
-| `phone` | string | yes | Phone number |
-| `fullname` | string | no | Full name |
-| `additional` | object | no | Additional data |
+| `username` | string | yes | 3-40 letters, digits, `.`, `_`, `-`, at least one letter |
+| `email` | string | yes | Valid email, stored lower-case (verified for MX + deliverability unless `BE_AUTH_EMAIL_VERIFICATION=false`) |
+| `password` | string | yes | 8+ characters, at most 72 bytes, not a very common password nor the username/email |
+| `phone` | string | yes | `+` and 6-20 digits; spaces, dashes and brackets are stripped |
+| `fullname` | string | no | Full name, up to 120 printable characters |
+
+Email, username and phone must not match any identifier (email, username or phone) of another account, compared
+case-insensitively: all three sign in. With email verification on, the pending registration waits in Redis for
+30 minutes with only a bcrypt hash of the password.
 
 **Response `200`**
 
@@ -97,34 +101,30 @@ With `BE_AUTH_EMAIL_VERIFICATION=false`: `"data": { "message": "Account created"
 | Status | Description |
 |---|---|
 | `200` | Registration successful (OTP sent, or account created) |
-| `400` | Invalid input, invalid email, or email / username / phone already taken |
+| `400` | Email / username / phone already taken, or the mail could not be sent |
+| `422` | Input breaks the rules above (the first message is in `detail[0].msg`) |
 | `403` | Registration is closed (`BE_AUTH_REGISTRATION_OPEN=false`) |
 
 ---
 
 ### `POST /auth/verification`
 
-Verify registration OTP. Creates the account with `status: "active"` and `emailVerified: true`.
+Confirm a registration with the emailed code. Creates the account with `status: "active"` and `emailVerified: true`.
+The code is valid only together with the email it was sent to, for 30 minutes, and is discarded after 5 wrong tries.
 
-**Request Body**
+**Request Body** — `EmailOtpDTO`
 
 | Field | Type | Required |
 |---|---|---|
-| `otp` | string | yes |
+| `email` | string | yes |
+| `otp` | string (6 digits) | yes |
 
 **Response `200`**
 
 ```json
 {
   "metaData": { "status": true, "executionTime": 5, "responseCode": 200, "message": "Success" },
-  "data": {
-    "id": "string",
-    "username": "string",
-    "email": "string",
-    "phone": "string",
-    "fullname": "string",
-    "status": "string"
-  }
+  "data": { "message": "Account verified" }
 }
 ```
 
@@ -132,15 +132,18 @@ Verify registration OTP. Creates the account with `status: "active"` and `emailV
 
 | Status | Description |
 |---|---|
-| `200` | Verification successful, user object returned |
-| `400` | Invalid OTP |
+| `200` | Account created |
+| `400` | "The code is invalid or has expired", or one of the identifiers was taken meanwhile |
 | `403` | Registration is closed (`BE_AUTH_REGISTRATION_OPEN=false`) |
+| `422` | Missing email, or the code is not 6 digits |
+| `429` | Auth rate limit (`BE_RATE_LIMIT_AUTH_PER_MINUTE`) |
 
 ---
 
 ### `DELETE /auth/logout` :lock:
 
-Logout and clear tokens from cookies.
+Logout: clear both cookies and revoke the refresh token (stored in Redis until it would have expired), so a copy of
+the cookie cannot start a new session. The access token is not revoked; it expires after `BE_JWT_EXPIRED`.
 
 **Auth:** `JWTRefresh`
 
@@ -375,7 +378,9 @@ Register a user via Google SSO (after `/auth/google/callback` answered `register
 
 ### `POST /auth/forgot-password/request`
 
-Request a forgot password (sends OTP to email).
+Request a password reset code by email. The answer is the same whether or not an account exists (and when the request
+is throttled: one mail a minute, three per `BE_ACCOUNT_LOCK_TIME`); only active accounts with a verified email get a
+code (valid 30 minutes, 5 tries).
 
 **Request Body** — `RequestChangeDTO`
 
@@ -383,18 +388,12 @@ Request a forgot password (sends OTP to email).
 |---|---|---|
 | `email` | string | yes |
 
-**Query Parameters**
-
-| Parameter | Type | Required |
-|---|---|---|
-| `setting_id` | string | no |
-
 **Response `200`**
 
 ```json
 {
   "metaData": { "status": true, "executionTime": 5, "responseCode": 200, "message": "Success" },
-  "data": { "message": "Email request password sent" }
+  "data": { "message": "If an account with this email exists, a reset code has been sent to it." }
 }
 ```
 
@@ -402,20 +401,22 @@ Request a forgot password (sends OTP to email).
 
 | Status | Description |
 |---|---|
-| `200` | OTP sent to email |
-| `400` | Invalid email or failed to send |
+| `200` | Always (see above) |
+| `422` | Invalid email, or its domain has no MX record |
+| `429` | Auth rate limit (`BE_RATE_LIMIT_AUTH_PER_MINUTE`) |
 
 ---
 
 ### `POST /auth/forgot-password/verify`
 
-Verify forgot password OTP.
+Check a reset code without using it up (each check counts as one of the 5 tries).
 
-**Request Body**
+**Request Body** — `EmailOtpDTO`
 
 | Field | Type | Required |
 |---|---|---|
-| `otp` | string | yes |
+| `email` | string | yes |
+| `otp` | string (6 digits) | yes |
 
 **Response `200`**
 
@@ -430,34 +431,30 @@ Verify forgot password OTP.
 
 | Status | Description |
 |---|---|
-| `200` | OTP valid |
-| `400` | Invalid OTP |
+| `200` | Code valid |
+| `400` | "The code is invalid or has expired" |
 
 ---
 
 ### `POST /auth/forgot-password/change`
 
-Change password using OTP.
+Set a new password with the reset code. Every session started before the change ends (refresh tokens issued earlier
+are refused; access tokens run out after `BE_JWT_EXPIRED`).
 
 **Request Body** — `ChangePasswordOTPDTO`
 
 | Field | Type | Required |
 |---|---|---|
-| `newPassword` | string | yes |
-| `otp` | string | yes |
+| `email` | string | yes |
+| `otp` | string (6 digits) | yes |
+| `newPassword` | string (8+ characters, at most 72 bytes, not a common password) | yes |
 
 **Response `200`**
 
 ```json
 {
   "metaData": { "status": true, "executionTime": 5, "responseCode": 200, "message": "Success" },
-  "data": {
-    "id": "string",
-    "username": "string",
-    "email": "string",
-    "phone": "string",
-    "status": "string"
-  }
+  "data": { "message": "Password changed" }
 }
 ```
 
@@ -465,8 +462,9 @@ Change password using OTP.
 
 | Status | Description |
 |---|---|
-| `200` | Password changed successfully, user object returned |
-| `400` | Failed to change password |
+| `200` | Password changed |
+| `400` | "The code is invalid or has expired" |
+| `422` | Password does not meet the rules |
 
 ---
 

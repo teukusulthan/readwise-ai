@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, model_validator, validator
+from pydantic import BaseModel, Field, field_validator, model_validator, validator
 from typing import Optional
 import re
 import dns.resolver
@@ -10,9 +10,58 @@ from loguru import logger
 
 redis = Services.redis()
 
+EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+# Letters, digits, dots, dashes, underscores; at least one letter, so a username can never equal a phone
+# number or an email (login matches the identifier against all three).
+USERNAME_PATTERN = re.compile(r"[A-Za-z0-9._-]{3,40}")
+PHONE_PATTERN = re.compile(r"\+?[0-9]{6,20}")
+OTP_PATTERN = r"^[0-9]{6}$"
+
+PASSWORD_MIN_LENGTH = 8
+# bcrypt only reads the first 72 bytes: longer passwords would be silently cut.
+PASSWORD_MAX_BYTES = 72
+# The most common passwords of 8+ characters; the rest of the policy is length (NIST SP 800-63B).
+COMMON_PASSWORDS = frozenset({
+    "password", "password1", "password12", "password123", "passw0rd", "12345678", "123456789", "1234567890",
+    "123123123", "11111111", "00000000", "87654321", "qwertyui", "qwerty123", "qwertyuiop", "1q2w3e4r",
+    "1qaz2wsx", "abcd1234", "abc12345", "iloveyou", "sunshine", "princess", "football", "baseball",
+    "welcome1", "letmein1", "superman", "trustno1", "admin123", "changeme",
+})
+
+
+def normalize_email(value: str) -> str:
+    return value.strip().lower()
+
+
+def normalize_phone(value: str) -> str:
+    """`+62 812-3456 (7890)` -> `+6281234567890`: one stored form, so uniqueness and login match."""
+    return re.sub(r"[\s()-]", "", value.strip())
+
+
+def password_problem(password: str, *, username: Optional[str] = None, email: Optional[str] = None) -> Optional[str]:
+    """Why `password` is refused, or None when it is acceptable."""
+    if len(password) < PASSWORD_MIN_LENGTH:
+        return f"Password must be at least {PASSWORD_MIN_LENGTH} characters"
+    if len(password.encode("utf-8")) > PASSWORD_MAX_BYTES:
+        return f"Password must be at most {PASSWORD_MAX_BYTES} bytes"
+    lowered = password.lower()
+    personal = {value.lower() for value in (username, email, (email or "").split("@")[0]) if value}
+    if lowered in COMMON_PASSWORDS or lowered in personal:
+        return "Password is too easy to guess; choose a less common one"
+    return None
+
+
+def _check_email_format(email: str) -> str:
+    email = normalize_email(email)
+    if len(email) > 254 or not EMAIL_PATTERN.fullmatch(email):
+        raise ValueError("Invalid email format")
+    return email
+
+
 class AuthDTO(BaseModel):
-    email: Optional[str] = Field(default=None)
-    password: Optional[str] = Field(default=None)
+    # `email` also matches the username or the phone number.
+    email: Optional[str] = Field(default=None, max_length=254)
+    password: Optional[str] = Field(default=None, max_length=256)
 
 
 class GoogleSSORequest(BaseModel):
@@ -38,19 +87,48 @@ class SMTPDTO(BaseModel):
 
 
 class RegisterDTO(BaseModel):
-    fullname: Optional[str] = Field(default=None)
+    fullname: Optional[str] = Field(default=None, max_length=120)
     username: str
     email: str
-    password: str
+    password: str = Field(max_length=256)
     phone: str
-    additional: Optional[dict] = Field(default=None)
 
+    @field_validator("fullname")
+    @classmethod
+    def validate_fullname(cls, fullname: Optional[str]):
+        if fullname is None:
+            return None
+        fullname = fullname.strip()
+        if any(not char.isprintable() for char in fullname):
+            raise ValueError("Full name contains invalid characters")
+        return fullname or None
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, username: str):
+        username = username.strip()
+        if not USERNAME_PATTERN.fullmatch(username) or not re.search(r"[A-Za-z]", username):
+            raise ValueError("Username must be 3-40 letters, digits, dots, dashes or underscores, with at least one letter")
+        return username
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, phone: str):
+        phone = normalize_phone(phone)
+        if not PHONE_PATTERN.fullmatch(phone):
+            raise ValueError("Enter a valid phone number")
+        return phone
+
+    @model_validator(mode="after")
+    def validate_password(self):
+        problem = password_problem(self.password, username=self.username, email=self.email)
+        if problem:
+            raise ValueError(problem)
+        return self
 
     @validator("email")
     def validate_email(cls, email: str):
-        pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-        if not re.match(pattern, email):
-            raise ValueError("Invalid email format")
+        email = _check_email_format(email)
 
         # BE_AUTH_EMAIL_VERIFICATION=false (development): no DNS / Proofy deliverability lookups.
         if not settings.AUTH_EMAIL_VERIFICATION:
@@ -109,9 +187,7 @@ class RequestChangeDTO(BaseModel):
 
     @validator("email")
     def validate_email(cls, email: str):
-        pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-        if not re.match(pattern, email):
-            raise ValueError("Invalid email format")
+        email = _check_email_format(email)
 
         if not cls.has_mx_record(email):
             raise ValueError("Email domain is not valid or cannot receive messages")
@@ -132,9 +208,7 @@ class RequestVerifyEmailDTO(BaseModel):
 
     @validator("email")
     def validate_email(cls, email: str):
-        pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-        if not re.match(pattern, email):
-            raise ValueError("Invalid email format")
+        email = _check_email_format(email)
 
         if not cls.has_mx_record(email):
             raise ValueError("Email domain is not valid or cannot receive messages")
@@ -190,21 +264,37 @@ class ChangePasswordDTO(BaseModel):
 
 
 class ChangePasswordOTPDTO(BaseModel):
-    newPassword: str
-    otp: str
-
-
-class OtpDTO(BaseModel):
-    otp: str
     email: str
+    otp: str = Field(pattern=OTP_PATTERN)
+    newPassword: str = Field(max_length=256)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, email: str):
+        return _check_email_format(email)
+
+    @model_validator(mode="after")
+    def validate_password(self):
+        problem = password_problem(self.newPassword, email=self.email)
+        if problem:
+            raise ValueError(problem)
+        return self
+
+
+class EmailOtpDTO(BaseModel):
+    """Body of POST /auth/verification and /auth/forgot-password/verify: a code is only valid for its email."""
+    email: str
+    otp: str = Field(pattern=OTP_PATTERN)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, email: str):
+        return _check_email_format(email)
+
 
 class VerifyEmailDTO(BaseModel):
     url: str
     email: str
-
-
-class RegisterOTPDTO(RegisterDTO):
-    otp: str
 
 class GenerateTwoFactorDTO(BaseModel):
     email: str

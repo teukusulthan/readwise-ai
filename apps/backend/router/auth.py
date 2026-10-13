@@ -4,11 +4,13 @@ from time import time
 from fastapi import APIRouter, HTTPException, Request, Depends, Query, Response
 from auth.auth_bearer import JWTRefresh
 from config.base import settings
+from middleware.route_limits import route_limit
 from util.helper import get_execution_time, is_include_schema, router_param_builder
 from models.base_response import BaseResponseFailed, BaseResponse
 from models.metadata import MetadataSuccess, MetadataFailed
 from dto.auth import (
     AuthDTO,
+    EmailOtpDTO,
     RequestChangeDTO,
     ChangePasswordOTPDTO,
     RegisterDTO,
@@ -17,7 +19,7 @@ from dto.auth import (
     TwoFactorVerifyDTO,
     TwoFactorResendDTO,
 )
-from service.auth import Auth, TwoFactorService
+from service.auth import Auth, AuthError, TwoFactorService
 from dto.user import UserDTO
 
 obj = Auth()
@@ -38,6 +40,11 @@ def delete_auth_cookies(response: Response):
 
 
 REGISTRATION_CLOSED_MESSAGE = "Registration is closed."
+GENERIC_ERROR_MESSAGE = "Something went wrong. Please try again later."
+
+# Per-client budget (BE_RATE_LIMIT_AUTH_PER_MINUTE) for every endpoint that checks a password or a code or
+# sends a mail: slows password guessing across accounts, code guessing and mail flooding.
+AUTH_LIMIT = Depends(route_limit("auth"))
 
 _FORBIDDEN_MESSAGES = [
     "User doesn't have login access",
@@ -58,6 +65,22 @@ def require_open_registration():
         )
 
 
+def public_message(error: Exception) -> str:
+    """Refusals meant for the caller (AuthError) keep their message; anything else is logged, not shown."""
+    return str(error) if isinstance(error, AuthError) else GENERIC_ERROR_MESSAGE
+
+
+def failure(start_time: float, error: Exception, status_code: int = 400) -> HTTPException:
+    return HTTPException(
+        status_code=status_code,
+        detail=BaseResponseFailed(
+            metaData=MetadataFailed(
+                executionTime=get_execution_time(start_time), message=public_message(error)
+            )
+        ).dict(),
+    )
+
+
 def google_oauth_configured() -> bool:
     """The /auth/google/* routes exist only when the Google OAuth client is configured."""
     return bool(settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET)
@@ -67,12 +90,12 @@ def google_oauth_configured() -> bool:
 google_router = APIRouter()
 
 
-@google_router.get("/google")
+@google_router.get("/google", dependencies=[AUTH_LIMIT])
 async def auth_google(request: Request, redirect_uri: str):
     return await obj.oauth.google.authorize_redirect(request, redirect_uri=redirect_uri)
 
 
-@google_router.post("/google/callback")
+@google_router.post("/google/callback", dependencies=[AUTH_LIMIT])
 async def google_callback(dto: GoogleSSORequest):
     start_time = time()
     try:
@@ -82,17 +105,10 @@ async def google_callback(dto: GoogleSSORequest):
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
 
 
-@google_router.post("/google/token_exchange")
+@google_router.post("/google/token_exchange", dependencies=[AUTH_LIMIT])
 async def google_exchange(token: str):
     start_time = time()
     try:
@@ -102,17 +118,10 @@ async def google_exchange(token: str):
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
 
 
-@google_router.post("/google/register", dependencies=[Depends(require_open_registration)])
+@google_router.post("/google/register", dependencies=[Depends(require_open_registration), AUTH_LIMIT])
 async def google_register(dto: UserDTO):
     start_time = time()
     try:
@@ -122,17 +131,10 @@ async def google_register(dto: UserDTO):
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
 
 
-@router.post("/login", include_in_schema=is_include_schema(tag, "login"))
+@router.post("/login", include_in_schema=is_include_schema(tag, "login"), dependencies=[AUTH_LIMIT])
 def login(dto: AuthDTO, response: Response):
     start_time = time()
 
@@ -147,19 +149,8 @@ def login(dto: AuthDTO, response: Response):
         )
     except Exception as error:
         logger.exception("Request failed")
-        status_code = 400
-        error_message = str(error)
-        if error_message in _FORBIDDEN_MESSAGES:
-            status_code = 403
-
-        raise HTTPException(
-            status_code=status_code,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=error_message
-                )
-            ).dict(),
-        )
+        status_code = 403 if isinstance(error, AuthError) and str(error) in _FORBIDDEN_MESSAGES else 400
+        raise failure(start_time, error, status_code)
 
 
 @router.delete(
@@ -172,8 +163,9 @@ def logout(request: Request, response: Response):
     start_time = time()
     try:
         # The access cookie may already have expired (only the refresh cookie is required): still log out.
-        token = request.headers.get("Authorization") or request.cookies.get("token") or ""
-        data = obj.logout(token)
+        # The refresh token is revoked, so a copy of the cookie cannot start new sessions.
+        refresh_token = request.cookies.get("refresh_token") or request.headers.get("Authorization")
+        data = obj.logout(refresh_token)
         delete_auth_cookies(response)
         return BaseResponse(
             data=data,
@@ -181,14 +173,7 @@ def logout(request: Request, response: Response):
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
 
 
 @router.get(
@@ -208,14 +193,7 @@ def validate(request: Request, full_response: bool = Query(default=False)):
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
 
 
 @router.get(
@@ -226,11 +204,8 @@ def validate(request: Request, full_response: bool = Query(default=False)):
 def refresh(request: Request, response: Response):
     start_time = time()
     try:
-        data = obj.refresh(
-                request.cookies.get("refresh_token"),
-                request.query_params.get("user_id", None),
-                request.query_params.get("permission_id", None),
-            )
+        bearer = request.headers.get("Authorization")
+        data = obj.refresh(bearer or request.cookies.get("refresh_token"))
         set_auth_cookies(response, data.get("token"), data.get("refresh_token"))
         
         return BaseResponse(
@@ -239,30 +214,11 @@ def refresh(request: Request, response: Response):
         )
     except Exception as error:
         logger.exception("Request failed")
-        if str(error) in [
-            "No active session found for user",
-            "Token expired more than 24 hours ago",
-        ]:
-            raise HTTPException(
-                status_code=401,
-                detail=BaseResponseFailed(
-                    metaData=MetadataFailed(
-                        executionTime=get_execution_time(start_time), message=str(error)
-                    )
-                ).dict(),
-            )
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=BaseResponseFailed(
-                    metaData=MetadataFailed(
-                        executionTime=get_execution_time(start_time), message=str(error)
-                    )
-                ).dict(),
-            )
+        # A refusal ends the session (the web client then goes to the login page).
+        raise failure(start_time, error, 401 if isinstance(error, AuthError) else 400)
 
 
-@router.post("/forgot-password/change")
+@router.post("/forgot-password/change", dependencies=[AUTH_LIMIT])
 def change_password(dto: ChangePasswordOTPDTO):
     start_time = time()
     try:
@@ -272,59 +228,36 @@ def change_password(dto: ChangePasswordOTPDTO):
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
 
 
-@router.post("/forgot-password/request")
-def request_change_password(
-    dto: RequestChangeDTO, setting_id: str | None = Query(default=None, required=False)
-):
+@router.post("/forgot-password/request", dependencies=[AUTH_LIMIT])
+def request_change_password(dto: RequestChangeDTO):
     start_time = time()
     try:
         return BaseResponse(
-            data=obj.request_change(setting_id=setting_id, dto=dto),
+            data=obj.request_change(dto=dto),
             metaData=MetadataSuccess(executionTime=get_execution_time(start_time)),
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
 
 
-@router.post("/forgot-password/verify")
-def change_password_verify(otp: str):
+@router.post("/forgot-password/verify", dependencies=[AUTH_LIMIT])
+def change_password_verify(dto: EmailOtpDTO):
     start_time = time()
     try:
         return BaseResponse(
-            data=obj.verity_otp(otp),
+            data=obj.verity_otp(dto),
             metaData=MetadataSuccess(executionTime=get_execution_time(start_time)),
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
 
 
-@router.post("/register", dependencies=[Depends(require_open_registration)])
+@router.post("/register", dependencies=[Depends(require_open_registration), AUTH_LIMIT])
 def register(
     dto: RegisterDTO
 ):
@@ -336,33 +269,19 @@ def register(
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
     
-@router.post("/verification", dependencies=[Depends(require_open_registration)])
-def verification(otp: str):
+@router.post("/verification", dependencies=[Depends(require_open_registration), AUTH_LIMIT])
+def verification(dto: EmailOtpDTO):
     start_time = time()
     try:
         return BaseResponse(
-            data=obj.verify_register_otp(otp),
+            data=obj.verify_register_otp(dto),
             metaData=MetadataSuccess(executionTime=get_execution_time(start_time)),
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
         
         
 obj_2fa = TwoFactorService()        
@@ -370,6 +289,7 @@ obj_2fa = TwoFactorService()
 @router.post(
     "/2fa/generate",
     include_in_schema=is_include_schema(tag, "generate_2fa_qr"),
+    dependencies=[AUTH_LIMIT],
 )
 def generate_2fa_qr(dto: GenerateTwoFactorDTO): 
     start_time = time()
@@ -381,19 +301,13 @@ def generate_2fa_qr(dto: GenerateTwoFactorDTO):
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
 
 
 
 @router.post("/2fa/verify",
     include_in_schema=is_include_schema(tag, "verify_2fa"),
+    dependencies=[AUTH_LIMIT],
     )
 def verify_unified(dto: TwoFactorVerifyDTO):
     start_time = time()
@@ -405,17 +319,11 @@ def verify_unified(dto: TwoFactorVerifyDTO):
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
 
 @router.post("/2fa/resend",
     include_in_schema=is_include_schema(tag, "resend_2fa"),
+    dependencies=[AUTH_LIMIT],
     )
 def resend_2fa(dto: TwoFactorResendDTO):
     start_time = time()
@@ -427,16 +335,9 @@ def resend_2fa(dto: TwoFactorResendDTO):
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
 
-@router.post("/verify-email/request")
+@router.post("/verify-email/request", dependencies=[AUTH_LIMIT])
 def request_verify_email(
     dto: RequestChangeDTO, setting_id: str | None = Query(default=None, required=False)
 ):
@@ -448,16 +349,9 @@ def request_verify_email(
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
     
-@router.get("/verify-email")
+@router.get("/verify-email", dependencies=[AUTH_LIMIT])
 def verify_email(token: str):
     start_time = time()
     try:
@@ -467,14 +361,7 @@ def verify_email(token: str):
         )
     except Exception as error:
         logger.exception("Request failed")
-        raise HTTPException(
-            status_code=400,
-            detail=BaseResponseFailed(
-                metaData=MetadataFailed(
-                    executionTime=get_execution_time(start_time), message=str(error)
-                )
-            ).dict(),
-        )
+        raise failure(start_time, error)
     
 
 
