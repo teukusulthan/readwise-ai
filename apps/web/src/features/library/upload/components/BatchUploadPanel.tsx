@@ -10,6 +10,7 @@ import { renderIcon } from '@/utils/icon-renderer'
 const STATUS_LABEL: Record<TBatchRowStatus, string> = {
   pending: 'Pending',
   uploading: 'Uploading',
+  waiting: 'Waiting',
   queued: 'Queued for indexing',
   error: 'Error',
 }
@@ -92,7 +93,9 @@ export function BatchUploadPanel({ rows, running, onAddFiles, onTitleChange, onR
                   </div>
                   <p className="truncate text-body-sm text-font-secondary">{row.file.name}</p>
                   <p className="text-body-sm" aria-live="polite">
-                    <span className="font-medium">{STATUS_LABEL[row.status]}</span>
+                    <span className="font-medium">
+                      {row.status === 'waiting' ? `Waiting ${row.waitSeconds ?? 0}s (rate limit)…` : STATUS_LABEL[row.status]}
+                    </span>
                     {row.status === 'uploading' && <span> {row.progress}%</span>}
                     {hasBlankTitle(row) && <span className="text-destructive"> — {BLANK_TITLE_ERROR}</span>}
                     {row.error && <span className="text-destructive"> — {row.error}</span>}

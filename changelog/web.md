@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Batch upload waits out rate limits (no sprint) · ✅ Done
+
+**Event:** Files modified
+**Files:** `apps/web/src/features/library/upload/hooks/useBatchUpload.ts`, `apps/web/src/features/library/upload/hooks/useBatchUpload.test.tsx`, `apps/web/src/features/library/upload/components/BatchUploadPanel.tsx`, `apps/web/src/features/library/upload/components/BatchUploadPanel.test.tsx`
+> A 429 on `/book/upload` (20 uploads/min, full ingestion queue) no longer fails the row: it shows "Waiting Ns (rate limit)…" for the `Retry-After` seconds and re-sends the same file, up to 3 times, then marks it a retryable error. Stop, closing the dialog or removing the row cancels the wait.
+
 ### 2026-10-13 · Refresh web README and AI guide (no sprint) · ✅ Done
 
 **Event:** Files modified

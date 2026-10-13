@@ -1,11 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '@/services/api-error'
 import { bookService } from '@/services/book.service'
-import { titleFromFileName, useBatchUpload } from './useBatchUpload'
+import { MAX_RATE_LIMIT_RETRIES, rateLimitDelaySeconds, titleFromFileName, useBatchUpload } from './useBatchUpload'
 
 vi.mock('@/services/book.service', () => ({ bookService: { upload: vi.fn() } }))
 
@@ -140,5 +140,108 @@ describe('useBatchUpload', () => {
     })
     expect(result.current.rows[0].status).toBe('error')
     expect(result.current.rows[0].error).toBe('A book with this file already exists')
+  })
+
+  describe('rate limit (429)', () => {
+    const tooMany = (retryAfter?: string) =>
+      new ApiError('Too many requests, try again in a moment.', {
+        response: { status: 429, data: {}, headers: retryAfter === undefined ? {} : { 'retry-after': retryAfter } } as never,
+      })
+
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+
+    it('reads Retry-After as seconds or an HTTP date, and ignores other errors', () => {
+      expect(rateLimitDelaySeconds(tooMany('12'))).toBe(12)
+      expect(rateLimitDelaySeconds(tooMany('0'))).toBe(1)
+      expect(rateLimitDelaySeconds(tooMany())).toBe(5)
+      expect(rateLimitDelaySeconds(tooMany('9999'))).toBe(300)
+      expect(rateLimitDelaySeconds(tooMany(new Date(Date.now() + 7000).toUTCString()))).toBeGreaterThanOrEqual(6)
+      expect(rateLimitDelaySeconds(new ApiError('conflict', { response: { status: 409, data: {}, headers: {} } as never }))).toBeUndefined()
+      expect(rateLimitDelaySeconds(new Error('boom'))).toBeUndefined()
+    })
+
+    it('waits Retry-After seconds with a countdown, then re-sends the same row and continues', async () => {
+      upload.mockRejectedValueOnce(tooMany('3'))
+      upload.mockResolvedValueOnce(book('a'))
+      upload.mockResolvedValueOnce(book('b'))
+      const { result } = setup()
+      act(() => result.current.addFiles([pdf('a.pdf'), pdf('b.pdf')]))
+      let done!: Promise<void>
+      act(() => {
+        done = result.current.start()
+      })
+      await act(() => vi.advanceTimersByTimeAsync(0))
+      expect(result.current.rows[0]).toMatchObject({ status: 'waiting', waitSeconds: 3 })
+      expect(result.current.rows[1].status).toBe('pending')
+      await act(() => vi.advanceTimersByTimeAsync(1000))
+      expect(result.current.rows[0]).toMatchObject({ status: 'waiting', waitSeconds: 2 })
+      expect(upload).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000)
+        await done
+      })
+      expect(upload).toHaveBeenCalledTimes(3)
+      expect(upload.mock.calls[1][0].file.name).toBe('a.pdf')
+      expect(result.current.rows.map((r) => r.status)).toEqual(['queued', 'queued'])
+      expect(result.current.rows[0].waitSeconds).toBeUndefined()
+    })
+
+    it(`gives up after ${MAX_RATE_LIMIT_RETRIES} automatic retries and leaves the row retryable`, async () => {
+      upload.mockRejectedValue(tooMany('1'))
+      const { result } = setup()
+      act(() => result.current.addFiles([pdf('a.pdf')]))
+      let done!: Promise<void>
+      act(() => {
+        done = result.current.start()
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+        await done
+      })
+      expect(upload).toHaveBeenCalledTimes(MAX_RATE_LIMIT_RETRIES + 1)
+      expect(result.current.rows[0]).toMatchObject({ status: 'error', retryable: true, error: 'Too many requests, try again in a moment.' })
+    })
+
+    it('stop() cancels the wait at once and leaves the row pending', async () => {
+      upload.mockRejectedValueOnce(tooMany('30'))
+      const { result } = setup()
+      act(() => result.current.addFiles([pdf('a.pdf'), pdf('b.pdf')]))
+      let done!: Promise<void>
+      act(() => {
+        done = result.current.start()
+      })
+      await act(() => vi.advanceTimersByTimeAsync(0))
+      expect(result.current.rows[0].status).toBe('waiting')
+      await act(async () => {
+        result.current.stop()
+        await done
+      })
+      expect(result.current.running).toBe(false)
+      expect(result.current.rows.map((r) => r.status)).toEqual(['pending', 'pending'])
+      expect(upload).toHaveBeenCalledTimes(1)
+      await act(() => vi.advanceTimersByTimeAsync(60_000))
+      expect(upload).toHaveBeenCalledTimes(1)
+    })
+
+    it('removing a waiting row cancels its re-send', async () => {
+      upload.mockRejectedValueOnce(tooMany('5'))
+      upload.mockResolvedValueOnce(book('b'))
+      const { result } = setup()
+      act(() => result.current.addFiles([pdf('a.pdf'), pdf('b.pdf')]))
+      let done!: Promise<void>
+      act(() => {
+        done = result.current.start()
+      })
+      await act(() => vi.advanceTimersByTimeAsync(0))
+      act(() => result.current.removeRow(result.current.rows[0].id))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000)
+        await done
+      })
+      expect(upload).toHaveBeenCalledTimes(2)
+      expect(upload.mock.calls[1][0].file.name).toBe('b.pdf')
+      expect(result.current.rows.map((r) => r.status)).toEqual(['queued'])
+    })
   })
 })
