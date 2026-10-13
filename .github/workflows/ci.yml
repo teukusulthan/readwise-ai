@@ -21,9 +21,9 @@ jobs:
         working-directory: apps/backend
     steps:
       - uses: actions/checkout@v4
+      # setup-uv v6 has no python-version-file input: `uv sync` (run in apps/backend) reads its .python-version.
       - uses: astral-sh/setup-uv@v6
         with:
-          python-version-file: apps/backend/.python-version
           enable-cache: true
           cache-dependency-glob: apps/backend/uv.lock
       - run: uv sync --frozen
@@ -58,9 +58,9 @@ jobs:
         working-directory: apps/mcp/library
     steps:
       - uses: actions/checkout@v4
+      # setup-uv v6 has no python-version-file input: `uv sync` (run in apps/mcp/library) reads its .python-version.
       - uses: astral-sh/setup-uv@v6
         with:
-          python-version-file: apps/mcp/library/.python-version
           enable-cache: true
           cache-dependency-glob: apps/mcp/library/uv.lock
       - run: uv sync --frozen
