@@ -101,6 +101,11 @@ services:
       BE_MONGO_URI: mongodb://mongo:27017
       BE_REDIS_HOST: redis
       BE_REDIS_PORT: "6379"
+      # Browser traffic reaches the backend through the web container's nginx, which overwrites
+      # X-Forwarded-For with the real client address. Trusting the `edge` subnet (only web and backend
+      # are on it) gives per-route rate limits the client IP instead of one bucket for nginx's address.
+      BE_TRUSTED_PROXIES: ${EDGE_SUBNET:-172.29.250.0/28}
+    networks: [default, edge]
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8020}:8020"
     volumes:
@@ -133,6 +138,8 @@ services:
         required: false
     environment:
       BACKEND_UPSTREAM: http://backend:8020
+    # Only on `edge` (no database access): its requests to the backend come from that subnet.
+    networks: [edge]
     ports:
       - "127.0.0.1:${WEB_PORT:-3000}:8080"
     depends_on:
@@ -169,6 +176,16 @@ services:
       retries: 5
       start_period: 15s
     restart: unless-stopped
+
+networks:
+  default: {}
+  # web (nginx) -> backend. Fixed subnet so the backend can trust exactly this proxy hop
+  # (BE_TRUSTED_PROXIES above). Created only with the `app` profile; override EDGE_SUBNET in the shell
+  # or a root .env if it clashes with another network on the host.
+  edge:
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET:-172.29.250.0/28}
 
 volumes:
   book-storage:

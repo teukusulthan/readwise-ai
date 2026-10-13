@@ -118,10 +118,11 @@ docker compose --profile app ps                           # backend, web, mcp sh
 
 | Service | Host URL | Notes |
 |---------|----------|-------|
-| web | http://localhost:3000 (`WEB_PORT`) | nginx: serves the build, proxies `/api/v1/apps/` to the backend (SSE unbuffered), `/cdn-assets/` to `ICON_CDN_PROXY_TARGET` |
+| web | http://localhost:3000 (`WEB_PORT`) | nginx: serves the build, proxies `/api/v1/apps/` to the backend (SSE unbuffered; `/chat/ask` gets a 420 s read timeout, other API calls 300 s), `/cdn-assets/` to `ICON_CDN_PROXY_TARGET` (resolved per request, so an unreachable CDN never stops nginx from starting) |
 | backend | http://localhost:8020 (`BACKEND_PORT`) | one worker; `BE_POSTGRES_URI`, `BE_QDRANT_URL`, `BE_MONGO_URI`, `BE_REDIS_HOST/PORT` are set by compose to the service names, overriding the localhost values in `.env` |
 | mcp | http://localhost:8030/mcp (`MCP_PORT`) | HTTP transport with bearer token; `LIBRARY_API_URL` points at the backend service |
 
+- Client IPs behind nginx: web and backend share a dedicated `edge` network with a fixed subnet (`EDGE_SUBNET`, default `172.29.250.0/28`), and compose sets the backend's `BE_TRUSTED_PROXIES` to that subnet. nginx overwrites `X-Forwarded-For` with the browser's address, so per-route rate limits count each client separately instead of sharing nginx's IP. If the subnet clashes with another network on the host, set `EDGE_SUBNET` (shell or root `.env`) — both values follow it. The web container is only on `edge`; the MCP container reaches the backend over the default network and is keyed by its service token.
 - Volumes: `book-storage` (uploaded PDFs) and `hf-cache` (tokenizer and Docling models, downloaded on the first parse) survive rebuilds.
 - `VITE_API_BASE_URL` and `VITE_AUTH_ENABLED` are compiled into the web bundle: set them in the shell or a root `.env` (compose reads that, not `apps/web/env/.env`) and rebuild. Accounts are off by default (`BE_JWT_ACTIVE=false` in `apps/backend/.env.example`, `VITE_AUTH_ENABLED=false`); turn `VITE_AUTH_ENABLED=true` on together with `BE_JWT_ACTIVE=true` and a `BE_JWT_SECRET` of at least 32 characters (the backend refuses to start otherwise).
 - The backend `.env` is not copied into the image (`.dockerignore`); it is passed as environment variables. The embedding service host (`BE_ENGINE_EMBEDDING_BASE_URL`) must be reachable from the container.

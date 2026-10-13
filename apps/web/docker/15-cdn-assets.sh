@@ -22,14 +22,35 @@ case "$target" in
 esac
 
 target="${target%/}"
-# Trailing slash on proxy_pass strips the /cdn-assets/ prefix (same as pathRewrite in proxy.config.json).
+# Split "https://host[:port][/path]" into the origin (proxied to) and an optional path prefix.
+rest="${target#*://}"
+origin="${target%%://*}://${rest%%/*}"
+prefix=""
+case "$rest" in
+  */*) prefix="/${rest#*/}" ;;
+esac
+
+# Resolve the CDN at request time, not at startup: with a literal host in proxy_pass nginx refuses to
+# start (and the container crash-loops) whenever the name does not resolve at boot. 127.0.0.11 is
+# Docker's embedded DNS on compose/user-defined networks; override with ICON_CDN_RESOLVER elsewhere.
+resolver="${ICON_CDN_RESOLVER:-127.0.0.11}"
+case "$resolver" in
+  "" | *[!A-Za-z0-9:.\[\]-]*) echo "15-cdn-assets: ICON_CDN_RESOLVER contains unsupported characters" >&2; exit 1 ;;
+esac
+
+# A variable in proxy_pass forwards the URI as is, so the /cdn-assets/ prefix is stripped by the rewrite
+# (same as pathRewrite in proxy.config.json); query strings are kept.
 cat > "$out" <<CONF
 location /cdn-assets/ {
-    proxy_pass ${target}/;
+    resolver ${resolver} valid=30s;
+    resolver_timeout 5s;
+    set \$cdn_origin "${origin}";
+    rewrite ^/cdn-assets/(.*)\$ ${prefix}/\$1 break;
+    proxy_pass \$cdn_origin;
     proxy_ssl_server_name on;
     proxy_set_header Host \$proxy_host;
     proxy_http_version 1.1;
     expires 7d;
 }
 CONF
-echo "15-cdn-assets: proxying /cdn-assets/ to the configured icon CDN"
+echo "15-cdn-assets: proxying /cdn-assets/ to the configured icon CDN (resolved at request time via ${resolver})"

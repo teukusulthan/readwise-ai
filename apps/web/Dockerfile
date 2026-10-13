@@ -27,6 +27,8 @@ FROM nginxinc/nginx-unprivileged:1.27.5-alpine AS runtime
 # Runtime settings, substituted into the template by the image's envsubst step:
 #   BACKEND_UPSTREAM        where /api/v1/apps/ is proxied (prefix stripped, like the Vite dev proxy)
 #   ICON_CDN_PROXY_TARGET   icon font CDN behind /cdn-assets/ (empty = location answers 404)
+#   ICON_CDN_RESOLVER       DNS server nginx resolves the CDN host with, per request (default 127.0.0.11,
+#                           Docker's embedded DNS on compose networks; set it when running elsewhere)
 ENV BACKEND_UPSTREAM=http://backend:8020 \
     ICON_CDN_PROXY_TARGET=
 
