@@ -49,7 +49,7 @@ The `.ai/` scaffolder and `design/` folder referenced by some generic skills are
 
 ## Running locally
 
-**Prerequisites:** Docker, [uv](https://docs.astral.sh/uv/), Node 20+.
+**Prerequisites:** Docker, [uv](https://docs.astral.sh/uv/), Node 22+.
 
 ```bash
 # 1. Infrastructure (PostgreSQL, Qdrant, MongoDB, Redis)

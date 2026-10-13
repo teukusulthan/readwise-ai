@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Continuous integration (no sprint) · ✅ Done
+
+**Event:** Task completed
+**Files:** `.github/workflows/ci.yml`, `apps/web/.nvmrc`, `README.md`
+> GitHub Actions workflow runs backend unit tests, web typecheck/lint/test/build and MCP tests on push and pull request; CI and `.nvmrc` use Node 22.
+
 ### 2026-10-13 · Docker images for the apps (no sprint) · ✅ Done
 
 **Event:** Task completed
