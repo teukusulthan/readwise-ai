@@ -127,7 +127,6 @@ services:
         # Compiled into the bundle at build time (rebuild after changing them).
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
         VITE_AUTH_ENABLED: ${VITE_AUTH_ENABLED:-false}
-        VITE_MAPBOX_TOKEN: ${VITE_MAPBOX_TOKEN:-}
     env_file:
       # Runtime: ICON_CDN_PROXY_TARGET (the icon CDN host, never committed). Unset = /cdn-assets/ answers 404.
       - path: ./apps/web/env/.env

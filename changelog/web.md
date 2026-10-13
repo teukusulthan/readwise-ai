@@ -14,6 +14,12 @@ Append-only. Newest entries at the top. Updated whenever a frontend task is crea
 > One-line summary of what changed or was delivered.
 -->
 
+### 2026-10-13 · Remove unused stubs and Mapbox token (no sprint) · ✅ Done
+
+**Event:** Task completed
+**Files:** `apps/web/src/pages/dashboard/DashboardPage.tsx` (deleted), `apps/web/src/routes/admin.routes.tsx` (deleted), `apps/web/src/config/env.ts`, `apps/web/src/vite-env.d.ts`, `apps/web/env/.env.example`, `apps/web/Dockerfile`, `docker-compose.yml`
+> Removed the unmounted dashboard and admin route stubs and the leftover `VITE_MAPBOX_TOKEN` setting (nothing reads it).
+
 ### 2026-10-13 · Continuous integration (no sprint) · ✅ Done
 
 **Event:** Task completed
